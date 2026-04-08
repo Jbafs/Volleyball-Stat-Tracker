@@ -1,0 +1,26 @@
+node_modules/
+dist/
+.wrangler/
+.env
+.env.local
+*.local
+
+# Local wrangler config with real database IDs — copy from wrangler.example.toml
+worker/wrangler.toml
+
+# Build outputs
+frontend/dist/
+worker/dist/
+
+# D1 local database
+.wrangler/state/
+
+# Editor
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

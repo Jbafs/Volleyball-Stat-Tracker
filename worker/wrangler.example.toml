@@ -1,0 +1,36 @@
+name = "volleyball-stat-tracker"
+main = "src/index.ts"
+compatibility_date = "2025-03-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Serve the built frontend as static assets.
+# The Worker handles /api/* routes; everything else serves the SPA.
+[assets]
+directory = "../frontend/dist"
+not_found_handling = "single-page-application"
+binding = "ASSETS"
+
+# ── Local dev database ──────────────────────────────────────────────────────
+# Run: wrangler d1 create volleyball-stats
+# Then paste the database_id printed by that command below.
+[[d1_databases]]
+binding = "DB"
+database_name = "volleyball-stats"
+database_id = "YOUR_DEV_DATABASE_ID"
+migrations_dir = "migrations"
+
+# ── Production environment ──────────────────────────────────────────────────
+# Run: wrangler d1 create volleyball-stats-prod
+# Then paste that database_id below.
+[env.production]
+
+[env.production.assets]
+directory = "../frontend/dist"
+not_found_handling = "single-page-application"
+binding = "ASSETS"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "volleyball-stats-prod"
+database_id = "YOUR_PROD_DATABASE_ID"
+migrations_dir = "migrations"

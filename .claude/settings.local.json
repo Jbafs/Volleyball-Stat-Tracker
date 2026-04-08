@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /c/Users/juliu/Documents/GitHub/Volleyball-Stat-Tracker log --oneline -10)",
+      "Bash(npx wrangler:*)",
+      "Bash(pnpm -F frontend tsc --noEmit)",
+      "Bash(npx tsc:*)",
+      "Read(//temp/readonly/**)",
+      "Read(//c/Users/juliu/.claude/plans/**)",
+      "Bash(pnpm add:*)"
+    ]
+  }
+}

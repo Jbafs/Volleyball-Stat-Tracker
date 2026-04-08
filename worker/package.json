@@ -1,0 +1,25 @@
+{
+  "name": "worker",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "wrangler deploy --dry-run",
+    "deploy": "wrangler deploy",
+    "deploy:prod": "wrangler deploy --env production",
+    "typecheck": "tsc --noEmit",
+    "migrate:local": "wrangler d1 migrations apply volleyball-stats --local",
+    "migrate:prod": "wrangler d1 migrations apply volleyball-stats-prod --env production"
+  },
+  "dependencies": {
+    "@vst/shared": "workspace:*",
+    "hono": "^4.7.5",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250401.0",
+    "typescript": "^5.8.2",
+    "wrangler": "^4.5.1"
+  }
+}

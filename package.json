@@ -1,0 +1,24 @@
+{
+  "name": "volleyball-stat-tracker",
+  "private": true,
+  "version": "0.0.1",
+  "scripts": {
+    "dev": "concurrently \"pnpm --filter frontend dev\" \"pnpm --filter worker dev\"",
+    "build": "pnpm --filter shared build && pnpm --filter frontend build && pnpm --filter worker build",
+    "lint": "eslint .",
+    "typecheck": "pnpm --filter shared typecheck && pnpm --filter worker typecheck && pnpm --filter frontend typecheck",
+    "migrate:local": "pnpm --filter worker migrate:local",
+    "migrate:prod": "pnpm --filter worker migrate:prod",
+    "deploy": "pnpm build && pnpm --filter worker deploy",
+    "deploy:prod": "pnpm build && pnpm --filter worker deploy:prod"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild", "sharp", "workerd"]
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "eslint": "^9.22.0",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.2"
+  }
+}

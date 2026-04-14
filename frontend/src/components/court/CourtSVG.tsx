@@ -133,10 +133,10 @@ export function CourtSVG({
       <rect x={0} y={0} width={W} height={H} fill="none" stroke="white" strokeWidth={3} />
 
       {/* ── 3m attack line (our side) ── */}
-      <line x1={0} y1={NET_Y + 150} x2={W} y2={NET_Y + 150} stroke="white" strokeWidth={2} strokeDasharray="10 5" opacity={0.6} />
+      <line x1={0} y1={NET_Y + 75} x2={W} y2={NET_Y + 75} stroke="white" strokeWidth={2} strokeDasharray="10 5" opacity={0.6} />
 
       {/* ── 3m attack line (opponent side) ── */}
-      <line x1={0} y1={NET_Y - 150} x2={W} y2={NET_Y - 150} stroke="white" strokeWidth={2} strokeDasharray="10 5" opacity={0.6} />
+      <line x1={0} y1={NET_Y - 75} x2={W} y2={NET_Y - 75} stroke="white" strokeWidth={2} strokeDasharray="10 5" opacity={0.6} />
 
       {/* ── Center line (net) ── */}
       <rect x={0} y={NET_Y - 6} width={W} height={12} fill="#1a1a2e" />

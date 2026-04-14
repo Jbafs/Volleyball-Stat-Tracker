@@ -143,13 +143,13 @@ export function isSetComplete(homeScore: number, awayScore: number, setNumber: n
 }
 
 // Court SVG coordinate system:
-// Width = 900, Height = 540 (18m x 9m scaled 50x)
-// Y=0 is top (opponent side), Y=540 is bottom (our side)
-// Net is at Y=270
+// Width = 900, Height = 450 (18m x 9m scaled 50px/m)
+// Y=0 is top (opponent side), Y=450 is bottom (our side)
+// Net is at Y=225
 export const COURT = {
   WIDTH: 900,
-  HEIGHT: 540,
-  NET_Y: 270,
-  // Our half: Y=270 to Y=540
-  // Opponent half: Y=0 to Y=270
+  HEIGHT: 450,
+  NET_Y: 225,
+  // Our half: Y=225 to Y=450
+  // Opponent half: Y=0 to Y=225
 } as const

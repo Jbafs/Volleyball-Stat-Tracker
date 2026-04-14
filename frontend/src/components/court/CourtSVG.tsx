@@ -26,6 +26,10 @@ interface Props {
   /** If true, flip perspective (opponent side is bottom) */
   flipped?: boolean
   className?: string
+  /** Called when a heatmap point is hovered / un-hovered */
+  onPointHover?: (point: HeatMapPoint | null) => void
+  /** Player name lookup for hover tooltip (playerId → name) */
+  playerNames?: Map<string, string>
 }
 
 const W = COURT.WIDTH   // 900
@@ -72,6 +76,7 @@ export function CourtSVG({
   markedCoord,
   flipped = false,
   className = '',
+  onPointHover,
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null)
   const [hoverZone, setHoverZone] = useState<number | null>(null)
@@ -330,7 +335,17 @@ export function CourtSVG({
           : pt.result === 'error' || pt.result === 'no_dig' ? '#EF4444'
           : '#FBBF24'
         return (
-          <circle key={i} cx={cx} cy={cy} r={5} fill={color} opacity={0.6} />
+          <circle
+            key={i}
+            cx={cx}
+            cy={cy}
+            r={5}
+            fill={color}
+            opacity={0.6}
+            style={onPointHover ? { cursor: 'pointer' } : undefined}
+            onMouseEnter={onPointHover ? () => onPointHover(pt) : undefined}
+            onMouseLeave={onPointHover ? () => onPointHover(null) : undefined}
+          />
         )
       })}
 

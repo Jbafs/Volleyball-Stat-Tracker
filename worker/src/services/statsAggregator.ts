@@ -1,6 +1,6 @@
 import type { D1Database } from '@cloudflare/workers-types'
 import { query } from '../db/client'
-import type { PlayerStats, RotationBreakdown, HeatMapPoint } from '@vst/shared'
+import type { PlayerStats, PlayerStatsWithTeam, TeamStats, ServeQualityBucket, RotationBreakdown, HeatMapPoint } from '@vst/shared'
 
 interface RawActionRow {
   player_id: string | null
@@ -308,9 +308,9 @@ export async function getAttackHeatMap(
     params.push(filters.matchId)
   }
 
-  const rows = await query<{ dest_x: number; dest_y: number; attack_result: string; player_id: string | null }>(
+  const rows = await query<{ dest_x: number; dest_y: number; attack_result: string; player_id: string | null; attack_zone: number | null }>(
     db,
-    `SELECT ra.dest_x, ra.dest_y, ra.attack_result, ra.player_id
+    `SELECT ra.dest_x, ra.dest_y, ra.attack_result, ra.player_id, ra.attack_zone
      FROM rally_actions ra
      JOIN rallies r ON r.id = ra.rally_id
      JOIN sets s ON s.id = r.set_id
@@ -324,6 +324,7 @@ export async function getAttackHeatMap(
     y: r.dest_y,
     result: r.attack_result as HeatMapPoint['result'],
     playerId: r.player_id,
+    ...(r.attack_zone !== null ? { zone: r.attack_zone } : {}),
   }))
 }
 
@@ -446,4 +447,186 @@ export async function getReceptionHeatMap(
     result: (r.pass_quality === 3 ? 'good_dig' : r.pass_quality === 0 ? 'no_dig' : 'poor_dig') as HeatMapPoint['result'],
     playerId: r.player_id,
   }))
+}
+
+export async function getSeasonLeaderboard(
+  db: D1Database,
+  seasonId: string
+): Promise<PlayerStatsWithTeam[]> {
+  const rows = await query<RawActionRow & { player_id: string; team_id: string; team_name: string }>(
+    db,
+    `SELECT
+      ra.player_id,
+      p.name AS player_name,
+      p.position,
+      ra.action_type,
+      ra.pass_context,
+      ra.serve_quality,
+      ra.pass_quality,
+      ra.set_type,
+      ra.set_quality,
+      ra.is_assist,
+      ra.attack_result,
+      ra.block_result,
+      ra.dig_result,
+      ra.freeball_result,
+      ra.dest_x,
+      ra.dest_y,
+      ra.dig_x,
+      ra.dig_y,
+      p.team_id,
+      t.name AS team_name
+    FROM rally_actions ra
+    JOIN players p ON p.id = ra.player_id
+    JOIN teams t ON t.id = p.team_id
+    JOIN rallies r ON r.id = ra.rally_id
+    JOIN sets s ON s.id = r.set_id
+    JOIN matches m ON m.id = s.match_id
+    WHERE m.season_id = ? AND ra.player_id IS NOT NULL`,
+    [seasonId]
+  )
+
+  const grouped = new Map<string, (RawActionRow & { team_id: string; team_name: string })[]>()
+  for (const row of rows) {
+    const list = grouped.get(row.player_id) ?? []
+    list.push(row)
+    grouped.set(row.player_id, list)
+  }
+
+  return Array.from(grouped.entries()).map(([pid, pRows]) => {
+    const base = aggregateRows(pid, pRows)
+    const first = pRows[0]
+    return { ...base, teamId: first.team_id, teamName: first.team_name }
+  })
+}
+
+export async function getSeasonTeamStats(
+  db: D1Database,
+  seasonId: string
+): Promise<TeamStats[]> {
+  const actionRows = await query<{
+    team_id: string
+    team_name: string
+    team_color: string
+    attack_attempts: number
+    attack_kills: number
+    attack_errors: number
+    serve_aces: number
+    serve_errors: number
+    serve_total: number
+    serve_quality_sum: number
+    pass_total: number
+    pass_quality_sum: number
+    dig_attempts: number
+    solo_blocks: number
+    assisted_blocks: number
+  }>(
+    db,
+    `SELECT
+      ra.team_id,
+      t.name  AS team_name,
+      t.color AS team_color,
+      SUM(CASE WHEN ra.action_type = 'attack' THEN 1 ELSE 0 END)                                           AS attack_attempts,
+      SUM(CASE WHEN ra.action_type = 'attack' AND ra.attack_result = 'kill' THEN 1 ELSE 0 END)             AS attack_kills,
+      SUM(CASE WHEN ra.action_type = 'attack' AND ra.attack_result = 'error' THEN 1 ELSE 0 END)            AS attack_errors,
+      SUM(CASE WHEN ra.action_type = 'serve'  AND ra.serve_quality = 4 THEN 1 ELSE 0 END)                  AS serve_aces,
+      SUM(CASE WHEN ra.action_type = 'serve'  AND ra.serve_quality = 0 THEN 1 ELSE 0 END)                  AS serve_errors,
+      SUM(CASE WHEN ra.action_type = 'serve'  THEN 1 ELSE 0 END)                                           AS serve_total,
+      SUM(CASE WHEN ra.action_type = 'serve'  THEN COALESCE(ra.serve_quality, 0) ELSE 0 END)               AS serve_quality_sum,
+      SUM(CASE WHEN ra.action_type = 'reception' THEN 1 ELSE 0 END)                                        AS pass_total,
+      SUM(CASE WHEN ra.action_type = 'reception' THEN COALESCE(ra.pass_quality, 0) ELSE 0 END)             AS pass_quality_sum,
+      SUM(CASE WHEN ra.action_type = 'pass' AND ra.pass_context = 'dig' THEN 1 ELSE 0 END)                 AS dig_attempts,
+      SUM(CASE WHEN ra.action_type = 'block' AND ra.block_result = 'solo_block' THEN 1 ELSE 0 END)         AS solo_blocks,
+      SUM(CASE WHEN ra.action_type = 'block' AND ra.block_result = 'assisted_block' THEN 1 ELSE 0 END)     AS assisted_blocks
+    FROM rally_actions ra
+    JOIN teams t ON t.id = ra.team_id
+    JOIN rallies r ON r.id = ra.rally_id
+    JOIN sets s ON s.id = r.set_id
+    JOIN matches m ON m.id = s.match_id
+    WHERE m.season_id = ?
+    GROUP BY ra.team_id`,
+    [seasonId]
+  )
+
+  const sideoutRows = await query<{ team_id: string; sideout_won: number; sideout_total: number }>(
+    db,
+    `SELECT rs.team_id,
+       SUM(rs.sideout_won)   AS sideout_won,
+       SUM(rs.sideout_total) AS sideout_total
+     FROM rotation_stats rs
+     JOIN sets s ON s.id = rs.set_id
+     JOIN matches m ON m.id = s.match_id
+     WHERE m.season_id = ?
+     GROUP BY rs.team_id`,
+    [seasonId]
+  )
+
+  const sideoutMap = new Map(sideoutRows.map((r) => [r.team_id, r]))
+
+  return actionRows.map((r) => {
+    const so = sideoutMap.get(r.team_id)
+    const soWon = so?.sideout_won ?? 0
+    const soTotal = so?.sideout_total ?? 0
+    return {
+      teamId: r.team_id,
+      teamName: r.team_name,
+      teamColor: r.team_color,
+      attackAttempts: r.attack_attempts,
+      attackKills: r.attack_kills,
+      attackErrors: r.attack_errors,
+      attackEfficiency: r.attack_attempts > 0 ? (r.attack_kills - r.attack_errors) / r.attack_attempts : 0,
+      serveAces: r.serve_aces,
+      serveErrors: r.serve_errors,
+      serveTotalAttempts: r.serve_total,
+      serveQualityAvg: r.serve_total > 0 ? r.serve_quality_sum / r.serve_total : 0,
+      passTotalAttempts: r.pass_total,
+      passQualityAvg: r.pass_total > 0 ? r.pass_quality_sum / r.pass_total : 0,
+      digAttempts: r.dig_attempts,
+      soloBlocks: r.solo_blocks,
+      assistedBlocks: r.assisted_blocks,
+      sideoutWon: soWon,
+      sideoutTotal: soTotal,
+      sideoutPct: soTotal > 0 ? soWon / soTotal : 0,
+    }
+  })
+}
+
+export async function getServeQualityDist(
+  db: D1Database,
+  filters: { teamId?: string; playerId?: string; seasonId?: string; matchId?: string }
+): Promise<ServeQualityBucket[]> {
+  const conditions: string[] = ["ra.action_type = 'serve'", 'ra.serve_quality IS NOT NULL']
+  const params: string[] = []
+
+  if (filters.teamId) {
+    conditions.push('ra.team_id = ?')
+    params.push(filters.teamId)
+  }
+  if (filters.playerId) {
+    conditions.push('ra.player_id = ?')
+    params.push(filters.playerId)
+  }
+  if (filters.seasonId) {
+    conditions.push('m.season_id = ?')
+    params.push(filters.seasonId)
+  }
+  if (filters.matchId) {
+    conditions.push('s.match_id = ?')
+    params.push(filters.matchId)
+  }
+
+  const rows = await query<{ quality: number; count: number }>(
+    db,
+    `SELECT ra.serve_quality AS quality, COUNT(*) AS count
+     FROM rally_actions ra
+     JOIN rallies r ON r.id = ra.rally_id
+     JOIN sets s ON s.id = r.set_id
+     JOIN matches m ON m.id = s.match_id
+     WHERE ${conditions.join(' AND ')}
+     GROUP BY ra.serve_quality
+     ORDER BY ra.serve_quality`,
+    params
+  )
+
+  return rows.map((r) => ({ quality: r.quality, count: r.count }))
 }

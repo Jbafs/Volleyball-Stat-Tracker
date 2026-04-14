@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import type { Env } from '../db/client'
-import { getPlayerStats, getTeamPlayerStats, getRotationBreakdown, getAttackHeatMap, getDigHeatMap, getReceptionHeatMap, getTeamSideout, getMatchPlayerStats, getSetPlayerStats } from '../services/statsAggregator'
+import { getPlayerStats, getTeamPlayerStats, getRotationBreakdown, getAttackHeatMap, getDigHeatMap, getReceptionHeatMap, getTeamSideout, getMatchPlayerStats, getSetPlayerStats, getSeasonLeaderboard, getSeasonTeamStats, getServeQualityDist } from '../services/statsAggregator'
 
 const stats = new Hono<{ Bindings: Env }>()
 
@@ -25,8 +25,13 @@ stats.get('/player/:playerId', async (c) => {
 })
 
 stats.get('/players', async (c) => {
-  const { teamId, scope, scopeId } = c.req.query()
-  if (!teamId) return c.json({ error: 'teamId required' }, 400)
+  const { teamId, scope, scopeId, seasonId } = c.req.query()
+  // Season leaderboard — all players in a season across all teams
+  if (!teamId && seasonId) {
+    const result = await getSeasonLeaderboard(c.env.DB, seasonId)
+    return c.json(result)
+  }
+  if (!teamId) return c.json({ error: 'teamId or seasonId required' }, 400)
   const validScopes = ['career', 'season', 'match'] as const
   type TeamScope = (typeof validScopes)[number]
   const resolvedScope: TeamScope = validScopes.includes(scope as TeamScope)
@@ -78,6 +83,18 @@ stats.get('/heatmap/digs', async (c) => {
 stats.get('/heatmap/receptions', async (c) => {
   const { teamId, playerId, seasonId, matchId } = c.req.query()
   const result = await getReceptionHeatMap(c.env.DB, { teamId, playerId, seasonId, matchId })
+  return c.json(result)
+})
+
+stats.get('/season/:seasonId/teams', async (c) => {
+  const { seasonId } = c.req.param()
+  const result = await getSeasonTeamStats(c.env.DB, seasonId)
+  return c.json(result)
+})
+
+stats.get('/serve-quality', async (c) => {
+  const { teamId, playerId, seasonId, matchId } = c.req.query()
+  const result = await getServeQualityDist(c.env.DB, { teamId, playerId, seasonId, matchId })
   return c.json(result)
 })
 

@@ -278,6 +278,39 @@ export interface HeatMapPoint {
   y: number
   result: AttackResult | DigResult
   playerId: string | null
+  zone?: number   // attack zone 1–9 (only present on attack heatmap points)
+}
+
+export interface PlayerStatsWithTeam extends PlayerStats {
+  teamId: string
+  teamName: string
+}
+
+export interface TeamStats {
+  teamId: string
+  teamName: string
+  teamColor: string
+  attackAttempts: number
+  attackKills: number
+  attackErrors: number
+  attackEfficiency: number
+  serveAces: number
+  serveErrors: number
+  serveTotalAttempts: number
+  serveQualityAvg: number
+  passTotalAttempts: number
+  passQualityAvg: number
+  digAttempts: number
+  soloBlocks: number
+  assistedBlocks: number
+  sideoutWon: number
+  sideoutTotal: number
+  sideoutPct: number
+}
+
+export interface ServeQualityBucket {
+  quality: number   // 0–4
+  count: number
 }
 
 // ─── API Payloads (for POST/PUT) ─────────────────────────────────────────────

@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { api } from './client'
-import type { PlayerStats, RotationBreakdown, HeatMapPoint, CreateSeasonPayload } from '@vst/shared'
+import type { PlayerStats, PlayerStatsWithTeam, TeamStats, ServeQualityBucket, RotationBreakdown, HeatMapPoint, CreateSeasonPayload } from '@vst/shared'
 
 /** All global seasons (for match modals — no team context needed). */
 export function useAllSeasons() {
@@ -113,6 +113,35 @@ export function useRotationStats(setId: string, teamId: string) {
   })
 }
 
+export function useSeasonLeaderboard(seasonId: string) {
+  return useQuery({
+    queryKey: ['stats', 'leaderboard', seasonId],
+    queryFn: () => api.get<PlayerStatsWithTeam[]>(`/stats/players?seasonId=${seasonId}`),
+    enabled: !!seasonId,
+    staleTime: 60_000,
+  })
+}
+
+export function useSeasonTeamStats(seasonId: string) {
+  return useQuery({
+    queryKey: ['stats', 'season-teams', seasonId],
+    queryFn: () => api.get<TeamStats[]>(`/stats/season/${seasonId}/teams`),
+    enabled: !!seasonId,
+    staleTime: 60_000,
+  })
+}
+
+export function useServeQualityDist(filters: { teamId?: string; playerId?: string; seasonId?: string; matchId?: string }) {
+  const params = new URLSearchParams()
+  Object.entries(filters).forEach(([k, v]) => v && params.set(k, v))
+  return useQuery({
+    queryKey: ['stats', 'serve-quality', filters],
+    queryFn: () => api.get<ServeQualityBucket[]>(`/stats/serve-quality?${params}`),
+    enabled: !!(filters.teamId || filters.playerId || filters.seasonId || filters.matchId),
+    staleTime: 60_000,
+  })
+}
+
 export function useAttackHeatMap(filters: {
   teamId?: string
   playerId?: string
@@ -124,7 +153,7 @@ export function useAttackHeatMap(filters: {
   return useQuery({
     queryKey: ['stats', 'heatmap', 'attacks', filters],
     queryFn: () => api.get<HeatMapPoint[]>(`/stats/heatmap/attacks?${params}`),
-    enabled: !!(filters.teamId || filters.playerId),
+    enabled: !!(filters.teamId || filters.playerId || filters.seasonId || filters.matchId),
     staleTime: 60_000,
   })
 }
@@ -140,7 +169,7 @@ export function useDigHeatMap(filters: {
   return useQuery({
     queryKey: ['stats', 'heatmap', 'digs', filters],
     queryFn: () => api.get<HeatMapPoint[]>(`/stats/heatmap/digs?${params}`),
-    enabled: !!(filters.teamId || filters.playerId),
+    enabled: !!(filters.teamId || filters.playerId || filters.seasonId || filters.matchId),
     staleTime: 60_000,
   })
 }
@@ -156,7 +185,7 @@ export function useReceptionHeatMap(filters: {
   return useQuery({
     queryKey: ['stats', 'heatmap', 'receptions', filters],
     queryFn: () => api.get<HeatMapPoint[]>(`/stats/heatmap/receptions?${params}`),
-    enabled: !!(filters.teamId || filters.playerId),
+    enabled: !!(filters.teamId || filters.playerId || filters.seasonId || filters.matchId),
     staleTime: 60_000,
   })
 }

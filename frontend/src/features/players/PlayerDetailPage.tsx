@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { usePlayer } from '../../api/players'
-import { usePlayerStats } from '../../api/stats'
+import { usePlayerStats, useAllSeasons } from '../../api/stats'
 import { useMatches } from '../../api/matches'
 import { downloadCsvRows } from '../../utils/csv'
 import { POSITION_LABELS } from '@vst/shared'
@@ -95,20 +95,41 @@ function matchLabel(m: Record<string, unknown>): string {
 
 export function PlayerDetailPage() {
   const { playerId } = useParams<{ playerId: string }>()
+  const navigate = useNavigate()
   const { data: player } = usePlayer(playerId!)
   const { data: career } = usePlayerStats(playerId!, 'career')
   const [matchId, setMatchId] = useState('')
+  const [seasonId, setSeasonId] = useState('')
 
   const p = player as unknown as Record<string, unknown> | undefined
   const teamId = (p?.team_id as string | undefined) ?? ''
 
   const { data: matches = [] } = useMatches(teamId ? { teamId } : undefined)
+  const { data: allSeasons = [] } = useAllSeasons()
+  const seasonRows = allSeasons as unknown as Record<string, unknown>[]
+
   const { data: matchStats } = usePlayerStats(playerId!, 'match', matchId || undefined)
+  const { data: seasonStats } = usePlayerStats(playerId!, 'season', seasonId || undefined)
+
+  function handleMatchChange(val: string) {
+    setMatchId(val)
+    if (val) setSeasonId('')
+  }
+
+  function handleSeasonChange(val: string) {
+    setSeasonId(val)
+    if (val) setMatchId('')
+  }
+
+  const showMatchComparison = !!matchId && !!matchStats && !!career
+  const showSeasonComparison = !!seasonId && !!seasonStats && !!career
+  const showComparison = showMatchComparison || showSeasonComparison
+  const activeStats = showMatchComparison ? matchStats : showSeasonComparison ? seasonStats : null
 
   function handleExport() {
-    const src = (matchId && matchStats) ? matchStats : career
+    const src = activeStats ?? career
     if (!src) return
-    const label = matchId ? 'match' : 'career'
+    const label = matchId ? 'match' : seasonId ? 'season' : 'career'
     downloadCsvRows(
       `${(p!.name as string).replace(/\s+/g, '-')}-${label}.csv`,
       ['Stat', 'Value'],
@@ -129,10 +150,12 @@ export function PlayerDetailPage() {
 
   if (!player) return <div className="p-6 text-gray-400">Loading...</div>
 
-  const showComparison = !!matchId && !!matchStats && !!career
-
   return (
     <div className="p-6 space-y-6">
+      <button onClick={() => navigate(-1)} className="text-sm text-gray-400 hover:text-white flex items-center gap-1">
+        ← Back
+      </button>
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
@@ -151,35 +174,62 @@ export function PlayerDetailPage() {
         )}
       </div>
 
-      {/* Match filter */}
-      {(matches as unknown as Record<string, unknown>[]).length > 0 && (
-        <div className="flex items-center gap-3">
-          <label className="label shrink-0">View match:</label>
-          <select
-            className="input max-w-xs"
-            value={matchId}
-            onChange={(e) => setMatchId(e.target.value)}
-          >
-            <option value="">Career (all matches)</option>
-            {(matches as unknown as Record<string, unknown>[]).map((m) => (
-              <option key={m.id as string} value={m.id as string}>{matchLabel(m)}</option>
-            ))}
-          </select>
-        </div>
-      )}
+      {/* Scope filters */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+        {(matches as unknown as Record<string, unknown>[]).length > 0 && (
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+            <label className="label shrink-0">View match:</label>
+            <select
+              className="input max-w-xs"
+              value={matchId}
+              onChange={(e) => handleMatchChange(e.target.value)}
+            >
+              <option value="">—</option>
+              {(matches as unknown as Record<string, unknown>[]).map((m) => (
+                <option key={m.id as string} value={m.id as string}>{matchLabel(m)}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        {seasonRows.length > 0 && (
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+            <label className="label shrink-0">View season:</label>
+            <select
+              className="input max-w-xs"
+              value={seasonId}
+              onChange={(e) => handleSeasonChange(e.target.value)}
+            >
+              <option value="">—</option>
+              {seasonRows.map((s) => (
+                <option key={s.id as string} value={s.id as string}>{s.name as string}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        {!showComparison && <span className="text-xs text-gray-500 self-center">Showing career stats</span>}
+      </div>
 
-      {/* Stats — comparison table when a match is selected, single column otherwise */}
+      {/* Stats — comparison table when a scope is selected, single column (career) otherwise */}
       {career && (
         <div className="space-y-6">
           {showComparison && (
-            <div className="card p-3 flex gap-8 text-sm">
-              <span className="text-gray-400">Showing: <span className="text-white font-medium">{matchLabel((matches as unknown as Record<string, unknown>[]).find(m => (m.id as string) === matchId)!)}</span></span>
-              <span className="text-blue-400 font-medium">Left = match &nbsp;|&nbsp; Right = career</span>
+            <div className="card p-3 flex flex-wrap gap-4 text-sm">
+              {showMatchComparison && (
+                <span className="text-gray-400">
+                  Match: <span className="text-white font-medium">{matchLabel((matches as unknown as Record<string, unknown>[]).find(m => (m.id as string) === matchId)!)}</span>
+                </span>
+              )}
+              {showSeasonComparison && (
+                <span className="text-gray-400">
+                  Season: <span className="text-white font-medium">{(seasonRows.find(s => (s.id as string) === seasonId)?.name as string | undefined) ?? ''}</span>
+                </span>
+              )}
+              <span className="text-blue-400 font-medium">Left = selected &nbsp;|&nbsp; Right = career</span>
             </div>
           )}
 
           {STAT_SECTIONS.map(({ label, rows }) => {
-            const hasData = rows.some((r) => (career[r.key] as number) > 0 || (showComparison && (matchStats![r.key] as number) > 0))
+            const hasData = rows.some((r) => (career[r.key] as number) > 0 || (showComparison && (activeStats![r.key] as number) > 0))
             if (!hasData) return null
             return (
               <div key={label}>
@@ -190,7 +240,7 @@ export function PlayerDetailPage() {
                       <thead>
                         <tr className="border-b border-gray-700">
                           <th className="text-left p-3 text-gray-400 font-normal">Stat</th>
-                          <th className="text-right p-3 text-blue-300 font-semibold">This Match</th>
+                          <th className="text-right p-3 text-blue-300 font-semibold">{showMatchComparison ? 'This Match' : 'This Season'}</th>
                           <th className="text-right p-3 text-gray-400 font-normal">Career</th>
                         </tr>
                       </thead>
@@ -202,7 +252,7 @@ export function PlayerDetailPage() {
                               {r.sub && <span className="text-xs text-gray-600 ml-1">({r.sub})</span>}
                             </td>
                             <td className="p-3 text-right text-white font-medium tabular-nums">
-                              {fmt(matchStats![r.key] as number, r.decimals)}
+                              {fmt(activeStats![r.key] as number, r.decimals)}
                             </td>
                             <td className="p-3 text-right text-gray-400 tabular-nums">
                               {fmt(career[r.key] as number, r.decimals)}
@@ -235,9 +285,15 @@ export function PlayerDetailPage() {
         </div>
       )}
 
-      {matchId && !matchStats && (
+      {(matchId && !matchStats) && (
         <div className="card p-6 text-center">
           <p className="text-gray-400">No stats recorded for this player in the selected match.</p>
+        </div>
+      )}
+
+      {(seasonId && !seasonStats) && (
+        <div className="card p-6 text-center">
+          <p className="text-gray-400">No stats recorded for this player in the selected season.</p>
         </div>
       )}
     </div>

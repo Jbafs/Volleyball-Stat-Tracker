@@ -52,7 +52,14 @@ export const useMatchStore = create<MatchState>((set) => ({
   awayLineup: [],
 
   setActiveMatch: (matchId, homeTeamId, awayTeamId) =>
-    set({ matchId, homeTeamId, awayTeamId }),
+    set({
+      matchId, homeTeamId, awayTeamId,
+      // Reset all per-set fields so stale state from a previous match doesn't linger.
+      setId: null, setNumber: 1,
+      homeScore: 0, awayScore: 0,
+      homeRotation: 1, awayRotation: 1, servingTeamId: null,
+      homeLineup: [], awayLineup: [],
+    }),
 
   setActiveSet: (setId, setNumber, homeRot, awayRot, servingTeamId, homeScore, awayScore) =>
     set({ setId, setNumber, homeRotation: homeRot, awayRotation: awayRot, servingTeamId, homeScore, awayScore }),

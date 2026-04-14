@@ -176,6 +176,38 @@ export async function getPlayerStats(
   return aggregateRows(playerId, rows)
 }
 
+export async function getTeamPlayerStats(
+  db: D1Database,
+  teamId: string,
+  scope: 'career' | 'season' | 'match' = 'career',
+  scopeId?: string
+): Promise<PlayerStats[]> {
+  const params: string[] = [teamId]
+  let whereClause = 'ra.team_id = ? AND ra.player_id IS NOT NULL'
+  if (scope !== 'career' && scopeId) {
+    const filter = buildMatchFilter(scope, scopeId)
+    whereClause += ` AND ${filter.condition}`
+    params.push(filter.param)
+  }
+
+  const rows = await query<RawActionRow & { player_id: string }>(
+    db,
+    `SELECT ${ACTION_COLUMNS}
+    FROM rally_actions ra ${ACTION_JOINS}
+    WHERE ${whereClause}`,
+    params
+  )
+
+  const grouped = new Map<string, RawActionRow[]>()
+  for (const row of rows) {
+    const list = grouped.get(row.player_id) ?? []
+    list.push(row)
+    grouped.set(row.player_id, list)
+  }
+
+  return Array.from(grouped.entries()).map(([pid, pRows]) => aggregateRows(pid, pRows))
+}
+
 export async function getMatchPlayerStats(
   db: D1Database,
   matchId: string

@@ -26,17 +26,19 @@ rallies.post('/sets/:setId/rallies', async (c) => {
   const body = await parseBody(c, createRallySchema)
   if (isResponse(body)) return body
 
-  // Remove any orphaned shell from a previous session before creating a new one
+  // Remove orphaned shells from previous sessions — but only those older than 5 minutes
+  // so we never accidentally delete a shell that is still being actively used.
+  const staleThreshold = Date.now() - 5 * 60 * 1000
   await execute(
     c.env.DB,
-    'DELETE FROM rallies WHERE set_id = ? AND winning_team_id IS NULL AND point_type IS NULL',
-    [setId]
+    'DELETE FROM rallies WHERE set_id = ? AND winning_team_id IS NULL AND point_type IS NULL AND created_at < ?',
+    [setId, staleThreshold]
   )
 
-  const count = await queryOne<{ cnt: number }>(
-    c.env.DB, 'SELECT COUNT(*) AS cnt FROM rallies WHERE set_id = ?', [setId]
+  const maxRow = await queryOne<{ maxNum: number | null }>(
+    c.env.DB, 'SELECT MAX(rally_number) AS maxNum FROM rallies WHERE set_id = ?', [setId]
   )
-  const rallyNumber = (count?.cnt ?? 0) + 1
+  const rallyNumber = (maxRow?.maxNum ?? 0) + 1
   const id = newId()
   const now = Date.now()
 

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { LayoutDashboard, Users, Calendar, BarChart3, ClipboardList, LogIn, LogOut, Bell, Menu, X } from 'lucide-react'
+import { LayoutDashboard, Users, Calendar, BarChart3, ClipboardList, LogIn, LogOut, Bell, Menu, X, Trophy, UserCog } from 'lucide-react'
 import { useAuthStore } from '../../store/authStore'
 import { useLogout } from '../../api/auth'
 import { api } from '../../api/client'
@@ -9,6 +9,7 @@ import { api } from '../../api/client'
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, exact: true },
   { to: '/teams', label: 'Teams', icon: Users },
+  { to: '/seasons', label: 'Seasons', icon: Trophy },
   { to: '/matches', label: 'Matches', icon: Calendar },
   { to: '/stats', label: 'Stats', icon: BarChart3 },
 ]
@@ -76,27 +77,43 @@ export function AppShell() {
           </NavLink>
         ))}
 
-        {/* Admin-only: proposals */}
+        {/* Admin-only section */}
         {user?.role === 'admin' && (
-          <NavLink
-            to="/admin/proposals"
-            onClick={handleNavClick}
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
-                isActive
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-400 hover:text-white hover:bg-gray-800'
-              }`
-            }
-          >
-            <Bell className="w-4 h-4" />
-            Proposals
-            {pendingCount > 0 && (
-              <span className="ml-auto text-xs bg-red-600 text-white rounded-full px-1.5 py-0.5 leading-none">
-                {pendingCount}
-              </span>
-            )}
-          </NavLink>
+          <>
+            <NavLink
+              to="/admin/proposals"
+              onClick={handleNavClick}
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+                  isActive
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                }`
+              }
+            >
+              <Bell className="w-4 h-4" />
+              Proposals
+              {pendingCount > 0 && (
+                <span className="ml-auto text-xs bg-red-600 text-white rounded-full px-1.5 py-0.5 leading-none">
+                  {pendingCount}
+                </span>
+              )}
+            </NavLink>
+            <NavLink
+              to="/admin/users"
+              onClick={handleNavClick}
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+                  isActive
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                }`
+              }
+            >
+              <UserCog className="w-4 h-4" />
+              Users
+            </NavLink>
+          </>
         )}
       </nav>
 

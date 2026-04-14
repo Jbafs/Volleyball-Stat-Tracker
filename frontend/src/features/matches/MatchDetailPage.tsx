@@ -4,7 +4,7 @@ import { Pencil, Play, Plus, Trash2 } from 'lucide-react'
 import { useMatch, useMatchSets, useCreateSet, useUpdateMatchStatus, useUpdateMatch, useDeleteMatch } from '../../api/matches'
 import { useTeamPlayers } from '../../api/players'
 import { useTeam, useSaveTeamDefaultLineup } from '../../api/teams'
-import { useSeasons } from '../../api/stats'
+import { useAllSeasons } from '../../api/stats'
 import { api } from '../../api/client'
 import { useAuthStore } from '../../store/authStore'
 import { ProposeModal } from '../proposals/ProposeModal'
@@ -283,7 +283,6 @@ function EditMatchModal({
   initialNotes,
   initialFormat,
   initialSeasonId,
-  homeTeamId,
   onClose,
 }: {
   matchId: string
@@ -292,7 +291,7 @@ function EditMatchModal({
   initialNotes: string
   initialFormat: 'bo3' | 'bo5'
   initialSeasonId: string
-  homeTeamId: string | null
+  homeTeamId?: string | null
   onClose: () => void
 }) {
   const [matchDate, setMatchDate] = useState(initialDate)
@@ -301,8 +300,8 @@ function EditMatchModal({
   const [format, setFormat] = useState<'bo3' | 'bo5'>(initialFormat)
   const [seasonId, setSeasonId] = useState(initialSeasonId)
   const update = useUpdateMatch()
-  const { data: seasons = [] } = useSeasons(homeTeamId ?? '')
-  const seasonRows = seasons as unknown as Record<string, unknown>[]
+  const { data: allSeasons = [] } = useAllSeasons()
+  const seasonRows = allSeasons as unknown as Record<string, unknown>[]
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -349,17 +348,15 @@ function EditMatchModal({
               ))}
             </div>
           </div>
-          {seasonRows.length > 0 && (
-            <div>
-              <label className="label">Season</label>
-              <select className="input" value={seasonId} onChange={(e) => setSeasonId(e.target.value)}>
-                <option value="">No season</option>
-                {seasonRows.map((s) => (
-                  <option key={s.id as string} value={s.id as string}>{s.name as string}</option>
-                ))}
-              </select>
-            </div>
-          )}
+          <div>
+            <label className="label">Season</label>
+            <select className="input" value={seasonId} onChange={(e) => setSeasonId(e.target.value)}>
+              <option value="">No season</option>
+              {seasonRows.map((s) => (
+                <option key={s.id as string} value={s.id as string}>{s.name as string}</option>
+              ))}
+            </select>
+          </div>
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
             <button type="submit" disabled={update.isPending} className="btn-primary flex-1">

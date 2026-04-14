@@ -41,7 +41,6 @@ export interface Player {
 
 export interface Season {
   id: string
-  teamId: string
   name: string
   startDate: string | null
   endDate: string | null
@@ -134,6 +133,9 @@ export interface RallyAction {
   digX: number | null
   digY: number | null
   digResult: DigResult | null
+
+  // Pass context (dig / freeball / block_cover)
+  passContext: PassContext | null
 
   createdAt: number
 }

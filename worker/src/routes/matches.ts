@@ -3,6 +3,7 @@ import type { Env } from '../db/client'
 import { newId, query, queryOne, execute } from '../db/client'
 import { parseBody, isResponse } from '../middleware/validation'
 import { createMatchSchema, updateMatchSchema } from '@vst/shared'
+import { z } from 'zod'
 
 const matches = new Hono<{ Bindings: Env }>()
 
@@ -99,10 +100,11 @@ matches.put('/:matchId', async (c) => {
 
 matches.patch('/:matchId/status', async (c) => {
   const { matchId } = c.req.param()
-  const { status } = await c.req.json<{ status: string }>()
-  if (!['planned', 'in_progress', 'complete'].includes(status))
-    return c.json({ error: 'Invalid status' }, 400)
-  await execute(c.env.DB, 'UPDATE matches SET status = ? WHERE id = ?', [status, matchId])
+  const body = await parseBody(c, z.object({ status: z.enum(['planned', 'in_progress', 'complete']) }))
+  if (isResponse(body)) return body
+  const existing = await queryOne(c.env.DB, 'SELECT id FROM matches WHERE id = ?', [matchId])
+  if (!existing) return c.json({ error: 'Not found' }, 404)
+  await execute(c.env.DB, 'UPDATE matches SET status = ? WHERE id = ?', [body.status, matchId])
   return c.json({ success: true })
 })
 
@@ -110,7 +112,31 @@ matches.delete('/:matchId', async (c) => {
   const { matchId } = c.req.param()
   const existing = await queryOne(c.env.DB, 'SELECT id FROM matches WHERE id = ?', [matchId])
   if (!existing) return c.json({ error: 'Not found' }, 404)
-  await execute(c.env.DB, 'DELETE FROM matches WHERE id = ?', [matchId])
+
+  // D1 does not enforce ON DELETE CASCADE without PRAGMA foreign_keys = ON (unavailable in Workers).
+  // Delete children explicitly in dependency order before removing the match.
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `DELETE FROM rally_actions WHERE rally_id IN (
+         SELECT r.id FROM rallies r
+         JOIN sets s ON s.id = r.set_id WHERE s.match_id = ?)`
+    ).bind(matchId),
+    c.env.DB.prepare(
+      `DELETE FROM rotation_stats WHERE set_id IN (SELECT id FROM sets WHERE match_id = ?)`
+    ).bind(matchId),
+    c.env.DB.prepare(
+      `DELETE FROM set_lineups WHERE set_id IN (SELECT id FROM sets WHERE match_id = ?)`
+    ).bind(matchId),
+    c.env.DB.prepare(
+      `DELETE FROM substitutions WHERE set_id IN (SELECT id FROM sets WHERE match_id = ?)`
+    ).bind(matchId),
+    c.env.DB.prepare(
+      `DELETE FROM rallies WHERE set_id IN (SELECT id FROM sets WHERE match_id = ?)`
+    ).bind(matchId),
+    c.env.DB.prepare(`DELETE FROM sets WHERE match_id = ?`).bind(matchId),
+    c.env.DB.prepare(`DELETE FROM proposals WHERE entity_id = ? AND entity_type = 'match'`).bind(matchId),
+    c.env.DB.prepare(`DELETE FROM matches WHERE id = ?`).bind(matchId),
+  ])
   return c.json({ success: true })
 })
 

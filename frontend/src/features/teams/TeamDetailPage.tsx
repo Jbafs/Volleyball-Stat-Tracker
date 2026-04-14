@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { Plus, Pencil, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react'
 import { useTeam, useUpdateTeam, useSaveTeamDefaultLineup } from '../../api/teams'
 import { useTeamPlayers, useCreatePlayer, useUpdatePlayer } from '../../api/players'
-import { useSeasons, usePlayerStats, useCreateSeason, useUpdateSeason } from '../../api/stats'
+import { useSeasons, usePlayerStats, useUpdateSeason } from '../../api/stats'
 import { useAuthStore } from '../../store/authStore'
 import { ProposeModal } from '../proposals/ProposeModal'
 import { POSITION_LABELS, POSITIONS } from '@vst/shared'
@@ -158,39 +158,28 @@ const POSITION_COLORS: Record<string, string> = {
 
 // ─── Season Stats ─────────────────────────────────────────────────────────────
 
-function SeasonModal({
-  teamId,
+function SeasonEditModal({
   initial,
   onClose,
 }: {
-  teamId: string
-  initial?: { id: string; name: string; startDate: string; endDate: string }
+  initial: { id: string; name: string; startDate: string; endDate: string }
   onClose: () => void
 }) {
-  const isEdit = !!initial
-  const [name, setName] = useState(initial?.name ?? '')
-  const [startDate, setStartDate] = useState(initial?.startDate ?? '')
-  const [endDate, setEndDate] = useState(initial?.endDate ?? '')
-  const create = useCreateSeason(teamId)
-  const update = useUpdateSeason(initial?.id ?? '', teamId)
+  const [name, setName] = useState(initial.name)
+  const [startDate, setStartDate] = useState(initial.startDate)
+  const [endDate, setEndDate] = useState(initial.endDate)
+  const update = useUpdateSeason(initial.id)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    const payload = { name, startDate: startDate || null, endDate: endDate || null }
-    if (isEdit) {
-      await update.mutateAsync(payload)
-    } else {
-      await create.mutateAsync(payload)
-    }
+    await update.mutateAsync({ name, startDate: startDate || null, endDate: endDate || null })
     onClose()
   }
-
-  const isPending = create.isPending || update.isPending
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
       <div className="card p-6 w-full max-w-sm">
-        <h2 className="text-lg font-bold text-white mb-4">{isEdit ? 'Edit Season' : 'New Season'}</h2>
+        <h2 className="text-lg font-bold text-white mb-4">Edit Season</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="label">Season Name</label>
@@ -206,8 +195,8 @@ function SeasonModal({
           </div>
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
-            <button type="submit" disabled={isPending} className="btn-primary flex-1">
-              {isPending ? 'Saving...' : isEdit ? 'Save Changes' : 'Create Season'}
+            <button type="submit" disabled={update.isPending} className="btn-primary flex-1">
+              {update.isPending ? 'Saving...' : 'Save Changes'}
             </button>
           </div>
         </form>
@@ -245,13 +234,12 @@ function SeasonStatsSection({ teamId, players }: {
   const seasonRows = seasons as unknown as Record<string, unknown>[]
   const [selectedSeasonId, setSelectedSeasonId] = useState('')
   const [isOpen, setIsOpen] = useState(false)
-  const [showNewSeason, setShowNewSeason] = useState(false)
   const [editingSeason, setEditingSeason] = useState<{ id: string; name: string; startDate: string; endDate: string } | null>(null)
   const isAdmin = useAuthStore((s) => s.user?.role === 'admin')
 
-  if (seasonRows.length === 0 && !isAdmin) return null
+  if (seasonRows.length === 0) return null
 
-  const latestSeason = seasonRows[seasonRows.length - 1]
+  const latestSeason = seasonRows[0]
   const effectiveSeasonId = selectedSeasonId || (latestSeason ? (latestSeason.id as string) : '')
 
   return (
@@ -264,17 +252,12 @@ function SeasonStatsSection({ teamId, players }: {
           <h2 className="text-lg font-semibold text-white">Season Stats</h2>
           {isOpen ? <ChevronUp className="w-5 h-5 text-gray-400" /> : <ChevronDown className="w-5 h-5 text-gray-400" />}
         </button>
-        {isAdmin && (
-          <button onClick={() => setShowNewSeason(true)} className="btn-ghost gap-1.5 text-sm">
-            <Plus className="w-4 h-4" /> New Season
-          </button>
-        )}
       </div>
 
       {isOpen && (
         <div className="mt-3">
           {seasonRows.length === 0 ? (
-            <p className="text-sm text-gray-500">No seasons yet. Use "New Season" to create one.</p>
+            <p className="text-sm text-gray-500">No seasons yet — assign a season when creating or editing a match.</p>
           ) : (
             <>
               <div className="flex items-center gap-3 mb-3 flex-wrap">
@@ -357,8 +340,7 @@ function SeasonStatsSection({ teamId, players }: {
         </div>
       )}
 
-      {showNewSeason && <SeasonModal teamId={teamId} onClose={() => setShowNewSeason(false)} />}
-      {editingSeason && <SeasonModal teamId={teamId} initial={editingSeason} onClose={() => setEditingSeason(null)} />}
+      {editingSeason && <SeasonEditModal initial={editingSeason} onClose={() => setEditingSeason(null)} />}
     </div>
   )
 }

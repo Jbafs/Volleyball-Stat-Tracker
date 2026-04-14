@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useMatchStore } from '../../store/matchStore'
@@ -6,7 +6,7 @@ import { useRallyStore } from '../../store/rallyStore'
 import { useMatch, useMatchSets, matchKeys } from '../../api/matches'
 import { api } from '../../api/client'
 import { useSetLineup, useUpdateSet } from '../../api/sets'
-import { useCreateRally, useSubmitRally, useDeleteRally, useSetRallies } from '../../api/rallies'
+import { useCreateRally, useSubmitRally, useDeleteRally, useSetRallies, rallyKeys } from '../../api/rallies'
 import type { SubmittedRally } from '../../api/rallies'
 import { EntryHeader } from './EntryHeader'
 import { ServeStep } from './steps/ServeStep'
@@ -20,6 +20,23 @@ import { RallyTimeline } from './RallyTimeline'
 import { SubstitutionModal } from './SubstitutionModal'
 import { isSetComplete } from '@vst/shared'
 import type { SubmitRallyPayload, LineupSlot } from '@vst/shared'
+
+// Mirrors the server-side computeNextRotations logic for client-side rotation sync
+function computeNextRotation(
+  servingTeamId: string | null,
+  winningTeamId: string | null,
+  homeTeamId: string | null,
+  homeRotation: number,
+  awayRotation: number,
+) {
+  const homeServing = servingTeamId === homeTeamId
+  const homeWon = winningTeamId === homeTeamId
+  return {
+    nextHomeRotation: (!homeServing && homeWon) ? (homeRotation % 6) + 1 : homeRotation,
+    nextAwayRotation: (homeServing && !homeWon) ? (awayRotation % 6) + 1 : awayRotation,
+    nextServingTeamId: winningTeamId,
+  }
+}
 
 export function EntryPage() {
   const { matchId, setId } = useParams<{ matchId: string; setId: string }>()
@@ -40,6 +57,10 @@ export function EntryPage() {
   const { data: submittedRallies = [] } = useSetRallies(setId!)
 
   const [showSubModal, setShowSubModal] = useState(false)
+  const [submitFailed, setSubmitFailed] = useState(false)
+  const isSubmittingRef = useRef(false)
+  // Stores the last outcome so the user can retry without re-entering it
+  const lastOutcomeRef = useRef<{ winningTeamId: string; pointType: SubmitRallyPayload['pointType'] } | null>(null)
 
   // Initialize match context
   useEffect(() => {
@@ -95,8 +116,46 @@ export function EntryPage() {
     rallyStore.startRally(rally.id)
   }
 
+  const draftKey = `rally-draft-${setId}`
+
+  // On mount: check localStorage for a saved draft (written before a failed submit).
+  // If found, restore the rally store and show the Retry card automatically — so the
+  // user doesn't lose their entered actions after a page reload.
+  useEffect(() => {
+    if (!setId) return
+    try {
+      const raw = localStorage.getItem(`rally-draft-${setId}`)
+      if (!raw) return
+      const saved = JSON.parse(raw) as { rallyId?: string; actions?: unknown[]; winningTeamId?: string; pointType?: SubmitRallyPayload['pointType'] }
+      if (saved?.rallyId && Array.isArray(saved.actions) && saved.actions.length > 0) {
+        rallyStore.restoreActions(saved.actions as Parameters<typeof rallyStore.restoreActions>[0], saved.rallyId)
+        if (saved.winningTeamId && saved.pointType) {
+          lastOutcomeRef.current = { winningTeamId: saved.winningTeamId, pointType: saved.pointType }
+        }
+        setSubmitFailed(true)
+      }
+    } catch {
+      localStorage.removeItem(`rally-draft-${setId}`)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setId])
+
   async function handleSubmitRally(winningTeamId: string | null, pointType: SubmitRallyPayload['pointType']) {
-    if (!rallyStore.rallyId) return
+    if (!rallyStore.rallyId || !winningTeamId) return
+    // Synchronous ref guard — blocks double-tap before React re-renders with isPending:true
+    if (isSubmittingRef.current) return
+    isSubmittingRef.current = true
+    // Store outcome so Retry can re-use it without user re-selecting
+    lastOutcomeRef.current = { winningTeamId, pointType }
+    // Persist draft + outcome to localStorage before submit — survives a page reload after failure
+    try {
+      localStorage.setItem(draftKey, JSON.stringify({
+        rallyId: rallyStore.rallyId,
+        actions: rallyStore.actions,
+        winningTeamId,
+        pointType,
+      }))
+    } catch { /* storage quota */ }
     try {
       const result = await submitRally.mutateAsync({
         rallyId: rallyStore.rallyId,
@@ -106,26 +165,75 @@ export function EntryPage() {
           actions: rallyStore.actions,
         },
       })
+      localStorage.removeItem(draftKey)
       matchStore.applyRallyResult(result)
       rallyStore.resetRally()
+      setSubmitFailed(false)
     } catch {
-      // Error already shown via toast. Reset to idle so the user can start a fresh rally.
-      rallyStore.resetRally()
+      // Keep the rally store alive so the user can retry.
+      // Toast is already shown by the mutation's onError handler.
+      setSubmitFailed(true)
+    } finally {
+      isSubmittingRef.current = false
     }
+  }
+
+  function handleDiscardRally() {
+    localStorage.removeItem(draftKey)
+    rallyStore.resetRally()
+    lastOutcomeRef.current = null
+    setSubmitFailed(false)
   }
 
   async function handleDeleteRally(rallyId: string) {
     if (!window.confirm('Delete this rally? Set scores will be adjusted.')) return
     await deleteRally.mutateAsync(rallyId)
-    // Fetch fresh set data to sync scores after deletion (staleTime:0 forces a real fetch)
-    const freshSets = await qc.fetchQuery({
-      queryKey: matchKeys.sets(matchId!),
-      queryFn: () => api.get<unknown[]>(`/matches/${matchId!}/sets`),
-      staleTime: 0,
-    })
+
+    // Fetch fresh sets and rallies together after deletion
+    const [freshSets, freshRallies] = await Promise.all([
+      qc.fetchQuery({
+        queryKey: matchKeys.sets(matchId!),
+        queryFn: () => api.get<unknown[]>(`/matches/${matchId!}/sets`),
+        staleTime: 0,
+      }),
+      qc.fetchQuery({
+        queryKey: rallyKeys.bySet(setId!),
+        queryFn: () => api.get<unknown[]>(`/sets/${setId!}/rallies`),
+        staleTime: 0,
+      }),
+    ])
+
     const currentSet = (freshSets as Record<string, unknown>[]).find((s) => s.id === setId)
-    if (currentSet) {
-      matchStore.syncScores(currentSet.home_score as number, currentSet.away_score as number)
+    const newHomeScore = (currentSet?.home_score as number | undefined) ?? matchStore.homeScore
+    const newAwayScore = (currentSet?.away_score as number | undefined) ?? matchStore.awayScore
+    matchStore.syncScores(newHomeScore, newAwayScore)
+
+    // Sync rotation state from the last remaining submitted rally
+    const submitted = (freshRallies as Record<string, unknown>[])
+      .filter((r) => r.winning_team_id !== null)
+      .sort((a, b) => (a.rally_number as number) - (b.rally_number as number))
+    const lastRally = submitted[submitted.length - 1] as Record<string, unknown> | undefined
+
+    if (lastRally) {
+      const next = computeNextRotation(
+        lastRally.serving_team_id as string | null,
+        lastRally.winning_team_id as string | null,
+        matchStore.homeTeamId,
+        lastRally.home_rotation as number,
+        lastRally.away_rotation as number,
+      )
+      matchStore.applyRallyResult({ ...next, homeScore: newHomeScore, awayScore: newAwayScore })
+    } else if (currentSet) {
+      // No submitted rallies left — reset to the set's starting state
+      matchStore.setActiveSet(
+        setId!,
+        matchStore.setNumber,
+        (currentSet.home_starting_rotation as number | null) ?? 1,
+        (currentSet.away_starting_rotation as number | null) ?? 1,
+        (currentSet.first_serving_team_id as string | null) ?? matchStore.homeTeamId,
+        newHomeScore,
+        newAwayScore,
+      )
     }
   }
 
@@ -169,6 +277,48 @@ export function EntryPage() {
       <div className="flex flex-1 overflow-hidden">
         {/* Left panel: step entry */}
         <div className="flex-1 overflow-auto p-4">
+          {/* Submit-failed recovery card */}
+          {submitFailed && (
+            <div className="card border-red-800 bg-red-950/40 p-4 mb-4 flex flex-col gap-3">
+              <p className="text-red-300 font-medium">Submit failed — your actions are saved.</p>
+              <p className="text-sm text-gray-400">Check your connection and try again, or discard this rally.</p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    const outcome = lastOutcomeRef.current
+                    if (outcome) handleSubmitRally(outcome.winningTeamId, outcome.pointType)
+                  }}
+                  disabled={submitRally.isPending}
+                  className="btn-primary flex-1"
+                >
+                  {submitRally.isPending ? 'Retrying...' : 'Retry'}
+                </button>
+                <button onClick={handleDiscardRally} className="btn-secondary flex-1">
+                  Discard
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Mobile action bar — undo + action count (sm+ uses the timeline panel instead) */}
+          {step !== 'idle' && (
+            <div className="sm:hidden flex items-center justify-between mb-3 pb-2 border-b border-gray-800">
+              <span className="text-xs text-gray-400">
+                {rallyStore.actions.length > 0
+                  ? `${rallyStore.actions.length} action${rallyStore.actions.length !== 1 ? 's' : ''} recorded`
+                  : 'New rally'}
+              </span>
+              {rallyStore.actions.length > 0 && (
+                <button
+                  onClick={() => rallyStore.goBack()}
+                  className="btn-ghost text-xs px-2 py-1 border border-gray-700 rounded-lg"
+                >
+                  ← Undo
+                </button>
+              )}
+            </div>
+          )}
+
           {step !== 'idle' && step !== 'serve' && step !== 'point_outcome' && (
             <div className="flex items-center gap-1 mb-3">
               {(['receive', 'set', 'attack', 'pass', 'block'] as const).map((t) => {
@@ -309,6 +459,7 @@ export function EntryPage() {
               awayTeamId={matchStore.awayTeamId}
               homeTeamName={homeTeamName}
               awayTeamName={awayTeamName}
+              servingTeamId={matchStore.servingTeamId}
               actions={rallyStore.actions}
               onSubmit={handleSubmitRally}
               isSubmitting={submitRally.isPending}
@@ -316,8 +467,8 @@ export function EntryPage() {
           )}
         </div>
 
-        {/* Right panel: rally timeline */}
-        <div className="w-72 border-l border-gray-800 overflow-auto">
+        {/* Right panel: rally timeline — hidden on mobile (form gets full width) */}
+        <div className="hidden sm:flex sm:flex-col w-72 border-l border-gray-800 overflow-auto">
           <RallyTimeline
             actions={rallyStore.actions}
             step={step}

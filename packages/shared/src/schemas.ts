@@ -144,7 +144,7 @@ export const createRallySchema = z.object({
 })
 
 export const submitRallySchema = z.object({
-  winningTeamId: z.string().nullable(),
+  winningTeamId: z.string(),
   pointType: pointTypeSchema,
   actions: z.array(rallyActionDraftSchema).min(0),
 })

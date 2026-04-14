@@ -16,6 +16,7 @@ interface Props {
   awayTeamId: string | null
   homeTeamName: string
   awayTeamName: string
+  servingTeamId: string | null
   actions: RallyActionDraft[]
   onSubmit: (winningTeamId: string | null, pointType: PointType) => void
   isSubmitting: boolean
@@ -26,11 +27,12 @@ export function PointOutcomeStep({
   awayTeamId,
   homeTeamName,
   awayTeamName,
+  servingTeamId,
   actions,
   onSubmit,
   isSubmitting,
 }: Props) {
-  const inferred = inferPointOutcome(actions, homeTeamId, awayTeamId)
+  const inferred = inferPointOutcome(actions, homeTeamId, awayTeamId, servingTeamId)
 
   // undefined = not yet selected, null = opponent (untracked away team) selected
   const [winningTeamId, setWinningTeamId] = useState<string | null | undefined>(inferred?.winningTeamId)

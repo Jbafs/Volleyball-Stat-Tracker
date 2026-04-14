@@ -1,7 +1,6 @@
 import { Link } from 'react-router-dom'
 import { useTeams } from '../../api/teams'
 import { useMatches } from '../../api/matches'
-import { useSeasons } from '../../api/stats'
 import { Calendar, Users, Activity, ArrowRight } from 'lucide-react'
 import type { Team } from '@vst/shared'
 
@@ -31,27 +30,20 @@ function computeRecord(teamId: string, matches: MatchRow[]) {
   return { wins, losses }
 }
 
-function TeamRecordRow({ team }: { team: Team }) {
-  const { data: seasons = [] } = useSeasons(team.id)
-  const seasonRows = seasons as unknown as Record<string, unknown>[]
-  const latestSeason = seasonRows[seasonRows.length - 1]
-  const seasonId = latestSeason ? (latestSeason.id as string) : undefined
-
-  const { data: completedMatches = [] } = useMatches(
-    seasonId ? { teamId: team.id, seasonId, status: 'complete' } : { teamId: team.id, status: 'complete' }
+function TeamRecordRow({ team, allMatches }: { team: Team; allMatches: MatchRow[] }) {
+  // Filter pre-fetched matches client-side — no per-team query needed
+  const teamMatches = allMatches.filter(
+    (m) => (m.status as string) === 'complete' &&
+      (m.home_team_id === team.id || m.away_team_id === team.id)
   )
-  const matches = completedMatches as unknown as MatchRow[]
-  const { wins, losses } = computeRecord(team.id, matches)
+  const { wins, losses } = computeRecord(team.id, teamMatches)
 
-  if (matches.length === 0) return null
+  if (teamMatches.length === 0) return null
 
   return (
     <div className="flex items-center justify-between py-2 border-b border-gray-800 last:border-0">
       <div>
         <p className="text-white font-medium">{team.name}</p>
-        {latestSeason && (
-          <p className="text-xs text-gray-500">{latestSeason.name as string}</p>
-        )}
       </div>
       <div className="text-right">
         <p className="text-lg font-bold tabular-nums">
@@ -59,7 +51,7 @@ function TeamRecordRow({ team }: { team: Team }) {
           <span className="text-gray-600">–</span>
           <span className="text-red-400">{losses}</span>
         </p>
-        <p className="text-xs text-gray-500">{matches.length} matches</p>
+        <p className="text-xs text-gray-500">{teamMatches.length} matches</p>
       </div>
     </div>
   )
@@ -192,7 +184,7 @@ export function DashboardPage() {
           <h2 className="text-base font-semibold text-gray-300 mb-3">Team Records</h2>
           <div className="card p-4">
             {teams.map((team) => (
-              <TeamRecordRow key={team.id} team={team} />
+              <TeamRecordRow key={team.id} team={team} allMatches={allMatches as unknown as MatchRow[]} />
             ))}
           </div>
         </div>

@@ -1,14 +1,15 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Plus } from 'lucide-react'
 import { useMatches, useCreateMatch } from '../../api/matches'
 import { useTeams } from '../../api/teams'
-import { useSeasons } from '../../api/stats'
+import { useAllSeasons, useCreateSeason } from '../../api/stats'
 import type { CreateMatchPayload } from '@vst/shared'
 
 function CreateMatchModal({ onClose }: { onClose: () => void }) {
   const { data: teams = [] } = useTeams()
   const create = useCreateMatch()
+  const createSeason = useCreateSeason()
 
   const [homeTeamId, setHomeTeamId] = useState('')
   const [awayTeamId, setAwayTeamId] = useState('')
@@ -18,13 +19,29 @@ function CreateMatchModal({ onClose }: { onClose: () => void }) {
   const [awayIsTracked, setAwayIsTracked] = useState(false)
   const [format, setFormat] = useState<'bo3' | 'bo5'>('bo3')
   const [seasonId, setSeasonId] = useState('')
+  const [newSeasonName, setNewSeasonName] = useState('')
+  const [showNewSeason, setShowNewSeason] = useState(false)
 
-  const { data: seasons = [] } = useSeasons(homeTeamId)
-  const seasonRows = seasons as unknown as Record<string, unknown>[]
+  const { data: allSeasons = [] } = useAllSeasons()
+  const seasonRows = allSeasons as unknown as Record<string, unknown>[]
 
-  function handleHomeTeamChange(id: string) {
-    setHomeTeamId(id)
-    setSeasonId('')
+  async function handleSeasonChange(val: string) {
+    if (val === '__new__') {
+      setShowNewSeason(true)
+      setSeasonId('')
+    } else {
+      setShowNewSeason(false)
+      setSeasonId(val)
+    }
+  }
+
+  async function handleCreateSeason() {
+    if (!newSeasonName.trim()) return
+    const result = await createSeason.mutateAsync({ name: newSeasonName.trim() })
+    const created = result as unknown as Record<string, unknown>
+    setSeasonId(created.id as string)
+    setShowNewSeason(false)
+    setNewSeasonName('')
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -48,26 +65,49 @@ function CreateMatchModal({ onClose }: { onClose: () => void }) {
         <h2 className="text-lg font-bold text-white mb-4">New Match</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
+            <label className="label">Season (optional)</label>
+            <select
+              className="input"
+              value={showNewSeason ? '__new__' : seasonId}
+              onChange={(e) => handleSeasonChange(e.target.value)}
+            >
+              <option value="">No season</option>
+              {seasonRows.map((s) => (
+                <option key={s.id as string} value={s.id as string}>{s.name as string}</option>
+              ))}
+              <option value="__new__">+ New season…</option>
+            </select>
+            {showNewSeason && (
+              <div className="flex gap-2 mt-2">
+                <input
+                  className="input flex-1"
+                  placeholder="Season name (e.g. Spring 2025)"
+                  value={newSeasonName}
+                  onChange={(e) => setNewSeasonName(e.target.value)}
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={handleCreateSeason}
+                  disabled={!newSeasonName.trim() || createSeason.isPending}
+                  className="btn-primary px-3 whitespace-nowrap"
+                >
+                  {createSeason.isPending ? '…' : 'Create'}
+                </button>
+                <button type="button" onClick={() => { setShowNewSeason(false); setNewSeasonName('') }} className="btn-secondary px-3">✕</button>
+              </div>
+            )}
+          </div>
+
+          <div>
             <label className="label">Home Team (tracked)</label>
-            <select className="input" value={homeTeamId} onChange={(e) => handleHomeTeamChange(e.target.value)} required>
+            <select className="input" value={homeTeamId} onChange={(e) => setHomeTeamId(e.target.value)} required>
               <option value="">Select team...</option>
               {(teams as unknown as Record<string, unknown>[]).map((t) => (
                 <option key={t.id as string} value={t.id as string}>{t.name as string}</option>
               ))}
             </select>
           </div>
-
-          {homeTeamId && seasonRows.length > 0 && (
-            <div>
-              <label className="label">Season (optional)</label>
-              <select className="input" value={seasonId} onChange={(e) => setSeasonId(e.target.value)}>
-                <option value="">No season</option>
-                {seasonRows.map((s) => (
-                  <option key={s.id as string} value={s.id as string}>{s.name as string}</option>
-                ))}
-              </select>
-            </div>
-          )}
 
           <div>
             <label className="label">Opponent</label>
@@ -147,10 +187,56 @@ const PAGE_SIZE = 20
 
 export function MatchesPage() {
   const [showCreate, setShowCreate] = useState(false)
-  const [page, setPage] = useState(0)
+  const [searchParams, setSearchParams] = useSearchParams()
 
-  const { data: matches = [], isLoading } = useMatches({ limit: PAGE_SIZE, offset: page * PAGE_SIZE })
-  const { data: nextPage = [] } = useMatches({ limit: 1, offset: (page + 1) * PAGE_SIZE })
+  const seasonFilter = searchParams.get('seasonId') ?? ''
+  const statusFilter = searchParams.get('status') ?? ''
+  const page = Number(searchParams.get('page') ?? '0')
+
+  const { data: allSeasons = [] } = useAllSeasons()
+  const seasonRows = allSeasons as unknown as Record<string, unknown>[]
+
+  function setSeasonFilter(val: string) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      val ? next.set('seasonId', val) : next.delete('seasonId')
+      next.delete('page')
+      return next
+    })
+  }
+
+  function setStatusFilter(val: string) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      val ? next.set('status', val) : next.delete('status')
+      next.delete('page')
+      return next
+    })
+  }
+
+  function setPage(n: number) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      n > 0 ? next.set('page', String(n)) : next.delete('page')
+      return next
+    })
+  }
+
+  const filters = {
+    limit: PAGE_SIZE,
+    offset: page * PAGE_SIZE,
+    ...(seasonFilter ? { seasonId: seasonFilter } : {}),
+    ...(statusFilter ? { status: statusFilter } : {}),
+  }
+  const nextFilters = {
+    limit: 1,
+    offset: (page + 1) * PAGE_SIZE,
+    ...(seasonFilter ? { seasonId: seasonFilter } : {}),
+    ...(statusFilter ? { status: statusFilter } : {}),
+  }
+
+  const { data: matches = [], isLoading } = useMatches(filters)
+  const { data: nextPage = [] } = useMatches(nextFilters)
   const hasMore = nextPage.length > 0
 
   return (
@@ -160,6 +246,38 @@ export function MatchesPage() {
         <button onClick={() => setShowCreate(true)} className="btn-primary gap-2">
           <Plus className="w-4 h-4" /> New Match
         </button>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center mb-4">
+        <div className="flex items-center gap-2">
+          <label className="label shrink-0 text-sm">Status:</label>
+          <select
+            className="input max-w-xs text-sm"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
+            <option value="">All</option>
+            <option value="planned">Planned</option>
+            <option value="in_progress">In progress</option>
+            <option value="complete">Complete</option>
+          </select>
+        </div>
+        {seasonRows.length > 0 && (
+          <div className="flex items-center gap-2">
+            <label className="label shrink-0 text-sm">Season:</label>
+            <select
+              className="input max-w-xs text-sm"
+              value={seasonFilter}
+              onChange={(e) => setSeasonFilter(e.target.value)}
+            >
+              <option value="">All seasons</option>
+              {seasonRows.map((s) => (
+                <option key={s.id as string} value={s.id as string}>{s.name as string}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {isLoading && <p className="text-gray-400">Loading...</p>}
@@ -197,7 +315,7 @@ export function MatchesPage() {
       {(page > 0 || hasMore) && (
         <div className="flex items-center justify-center gap-4 mt-6">
           <button
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            onClick={() => setPage(Math.max(0, page - 1))}
             disabled={page === 0}
             className="btn-secondary px-4 py-2 disabled:opacity-40"
           >
@@ -205,7 +323,7 @@ export function MatchesPage() {
           </button>
           <span className="text-sm text-gray-400">Page {page + 1}</span>
           <button
-            onClick={() => setPage((p) => p + 1)}
+            onClick={() => setPage(page + 1)}
             disabled={!hasMore}
             className="btn-secondary px-4 py-2 disabled:opacity-40"
           >

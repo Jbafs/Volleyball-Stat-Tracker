@@ -2,8 +2,11 @@ import { useParams, Link } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import { useTeam } from '../../api/teams'
 import { useTeamPlayers } from '../../api/players'
-import { useSeasons, useTeamSideout, usePlayerStats } from '../../api/stats'
+import { useTeamSideout, usePlayerStats } from '../../api/stats'
 import { useMatches } from '../../api/matches'
+import { api } from '../../api/client'
+import { useQuery } from '@tanstack/react-query'
+
 type MatchRow = Record<string, unknown>
 
 function computeRecord(teamId: string, matches: MatchRow[]) {
@@ -55,16 +58,22 @@ function PlayerStatRow({ playerId, playerName, position, seasonId }: {
 }
 
 export function SeasonPage() {
-  const { teamId, seasonId } = useParams<{ teamId: string; seasonId: string }>()
-  const { data: team } = useTeam(teamId!)
-  const { data: seasons = [] } = useSeasons(teamId!)
-  const { data: players = [] } = useTeamPlayers(teamId!)
+  const { teamId, seasonId } = useParams<{ teamId?: string; seasonId: string }>()
+
+  // Fetch the season directly — works for both /seasons/:id and /teams/:teamId/seasons/:id
+  const { data: seasonRaw } = useQuery({
+    queryKey: ['season', seasonId],
+    queryFn: () => api.get<unknown>(`/seasons/${seasonId}`),
+    enabled: !!seasonId,
+  })
+  const season = seasonRaw as unknown as Record<string, unknown> | undefined
+
+  const { data: team } = useTeam(teamId ?? '')
+  const { data: players = [] } = useTeamPlayers(teamId ?? '')
   const { data: completedMatches = [] } = useMatches({ teamId, seasonId, status: 'complete' })
   const { data: sideout } = useTeamSideout({ teamId, seasonId })
 
   const t = team as unknown as Record<string, unknown> | undefined
-  const seasonRows = seasons as unknown as Record<string, unknown>[]
-  const season = seasonRows.find((s) => (s.id as string) === seasonId)
   const matches = completedMatches as unknown as MatchRow[]
   const activePlayers = (players as unknown as Record<string, unknown>[]).filter((p) => p.is_active)
   const { wins, losses } = teamId ? computeRecord(teamId, matches) : { wins: 0, losses: 0 }
@@ -75,9 +84,15 @@ export function SeasonPage() {
     <div className="p-6 space-y-6 max-w-4xl">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <Link to={`/teams/${teamId}`} className="btn-ghost gap-2 text-sm">
-          <ArrowLeft className="w-4 h-4" /> {t?.name as string ?? 'Team'}
-        </Link>
+        {teamId ? (
+          <Link to={`/teams/${teamId}`} className="btn-ghost gap-2 text-sm">
+            <ArrowLeft className="w-4 h-4" /> {t?.name as string ?? 'Team'}
+          </Link>
+        ) : (
+          <Link to="/seasons" className="btn-ghost gap-2 text-sm">
+            <ArrowLeft className="w-4 h-4" /> Seasons
+          </Link>
+        )}
         <div>
           <h1 className="text-2xl font-bold text-white">{season.name as string}</h1>
           {((season.start_date as string | null) || (season.end_date as string | null)) && (
@@ -90,14 +105,16 @@ export function SeasonPage() {
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="card p-4 text-center">
-          <p className="text-3xl font-bold tabular-nums">
-            <span className="text-green-400">{wins}</span>
-            <span className="text-gray-600">–</span>
-            <span className="text-red-400">{losses}</span>
-          </p>
-          <p className="text-gray-400 text-sm mt-1">Record</p>
-        </div>
+        {teamId && (
+          <div className="card p-4 text-center">
+            <p className="text-3xl font-bold tabular-nums">
+              <span className="text-green-400">{wins}</span>
+              <span className="text-gray-600">–</span>
+              <span className="text-red-400">{losses}</span>
+            </p>
+            <p className="text-gray-400 text-sm mt-1">Record</p>
+          </div>
+        )}
         <div className="card p-4 text-center">
           <p className="stat-value">{matches.length}</p>
           <p className="stat-label">Matches Played</p>
@@ -153,8 +170,8 @@ export function SeasonPage() {
         </div>
       )}
 
-      {/* Per-player stats */}
-      {activePlayers.length > 0 && (
+      {/* Per-player stats — only shown when viewing from a team context */}
+      {teamId && activePlayers.length > 0 && (
         <div>
           <h2 className="text-base font-semibold text-gray-300 mb-3">Player Stats</h2>
           <div className="card overflow-x-auto">

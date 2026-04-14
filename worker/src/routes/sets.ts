@@ -80,6 +80,19 @@ sets.post('/sets/:setId/lineup', async (c) => {
   const body = await parseBody(c, upsertLineupSchema)
   if (isResponse(body)) return body
 
+  // Validate that all provided players belong to the specified team
+  const playerIds = body.slots.map((s) => s.playerId).filter(Boolean) as string[]
+  if (playerIds.length > 0) {
+    const placeholders = playerIds.map(() => '?').join(', ')
+    const validPlayers = await query(
+      c.env.DB,
+      `SELECT id FROM players WHERE id IN (${placeholders}) AND team_id = ?`,
+      [...playerIds, body.teamId]
+    )
+    if (validPlayers.length !== playerIds.length)
+      return c.json({ error: 'One or more players do not belong to this team' }, 400)
+  }
+
   const now = Date.now()
   const stmts: ReturnType<D1Database['prepare']>[] = []
 

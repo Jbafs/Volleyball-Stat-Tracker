@@ -1,9 +1,10 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import type { Env } from '../db/client'
-import { newId, queryOne, execute } from '../db/client'
+import { newId, query, queryOne, execute } from '../db/client'
 import { parseBody, isResponse } from '../middleware/validation'
 import { hashPassword, verifyPassword, generateToken } from '../services/crypto'
+import { requireAuth } from '../middleware/auth'
 
 const auth = new Hono<{ Bindings: Env }>()
 
@@ -106,6 +107,52 @@ auth.get('/me', async (c) => {
     c.env.DB, 'SELECT id, email, role FROM users WHERE id = ?', [session.user_id]
   )
   return c.json({ user })
+})
+
+// ─── GET /auth/users ──────────────────────────────────────────────────────────
+
+const createUserSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8),
+})
+
+auth.get('/users', requireAuth, async (c) => {
+  const users = await query(c.env.DB, 'SELECT id, email, role, created_at FROM users ORDER BY created_at')
+  return c.json(users)
+})
+
+// ─── POST /auth/users ─────────────────────────────────────────────────────────
+
+auth.post('/users', requireAuth, async (c) => {
+  const body = await parseBody(c, createUserSchema)
+  if (isResponse(body)) return body
+
+  const existing = await queryOne(c.env.DB, 'SELECT id FROM users WHERE email = ?', [body.email])
+  if (existing) return c.json({ error: 'Email already in use' }, 409)
+
+  const id = newId()
+  const hash = await hashPassword(body.password)
+  await execute(
+    c.env.DB,
+    'INSERT INTO users (id, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?)',
+    [id, body.email, hash, 'admin', Date.now()]
+  )
+  return c.json({ id, email: body.email, role: 'admin' }, 201)
+})
+
+// ─── DELETE /auth/users/:userId ───────────────────────────────────────────────
+
+auth.delete('/users/:userId', requireAuth, async (c) => {
+  const { userId } = c.req.param()
+  const me = c.get('user') as { id: string } | null
+  if (me?.id === userId) return c.json({ error: 'Cannot delete your own account' }, 400)
+
+  const existing = await queryOne(c.env.DB, 'SELECT id FROM users WHERE id = ?', [userId])
+  if (!existing) return c.json({ error: 'Not found' }, 404)
+
+  await execute(c.env.DB, 'DELETE FROM sessions WHERE user_id = ?', [userId])
+  await execute(c.env.DB, 'DELETE FROM users WHERE id = ?', [userId])
+  return c.json({ success: true })
 })
 
 export default auth

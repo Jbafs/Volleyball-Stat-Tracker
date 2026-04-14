@@ -6,20 +6,20 @@ import { createSeasonSchema } from '@vst/shared'
 
 const seasons = new Hono<{ Bindings: Env }>()
 
-seasons.get('/teams/:teamId/seasons', async (c) => {
+// ─── Global season list ───────────────────────────────────────────────────────
+
+seasons.get('/seasons', async (c) => {
   const rows = await query(
     c.env.DB,
-    'SELECT * FROM seasons WHERE team_id = ? ORDER BY start_date DESC',
-    [c.req.param('teamId')]
+    `SELECT s.*,
+       (SELECT COUNT(*) FROM matches m WHERE m.season_id = s.id) AS match_count
+     FROM seasons s
+     ORDER BY s.start_date DESC, s.created_at DESC`
   )
   return c.json(rows)
 })
 
-seasons.post('/teams/:teamId/seasons', async (c) => {
-  const { teamId } = c.req.param()
-  const team = await queryOne(c.env.DB, 'SELECT id FROM teams WHERE id = ?', [teamId])
-  if (!team) return c.json({ error: 'Team not found' }, 404)
-
+seasons.post('/seasons', async (c) => {
   const body = await parseBody(c, createSeasonSchema)
   if (isResponse(body)) return body
 
@@ -27,12 +27,32 @@ seasons.post('/teams/:teamId/seasons', async (c) => {
   const now = Date.now()
   await execute(
     c.env.DB,
-    'INSERT INTO seasons (id, team_id, name, start_date, end_date, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-    [id, teamId, body.name, body.startDate ?? null, body.endDate ?? null, now]
+    'INSERT INTO seasons (id, name, start_date, end_date, created_at) VALUES (?, ?, ?, ?, ?)',
+    [id, body.name, body.startDate ?? null, body.endDate ?? null, now]
   )
   const season = await queryOne(c.env.DB, 'SELECT * FROM seasons WHERE id = ?', [id])
   return c.json(season, 201)
 })
+
+// ─── Team-scoped season list (derived via matches) ────────────────────────────
+
+seasons.get('/teams/:teamId/seasons', async (c) => {
+  const { teamId } = c.req.param()
+  // Return distinct seasons that this team has played in (via matches),
+  // ordered newest first by start_date.
+  const rows = await query(
+    c.env.DB,
+    `SELECT DISTINCT s.*
+     FROM seasons s
+     JOIN matches m ON m.season_id = s.id
+     WHERE m.home_team_id = ? OR m.away_team_id = ?
+     ORDER BY s.start_date DESC, s.created_at DESC`,
+    [teamId, teamId]
+  )
+  return c.json(rows)
+})
+
+// ─── Single season ────────────────────────────────────────────────────────────
 
 seasons.get('/seasons/:seasonId', async (c) => {
   const season = await queryOne(c.env.DB, 'SELECT * FROM seasons WHERE id = ?', [c.req.param('seasonId')])

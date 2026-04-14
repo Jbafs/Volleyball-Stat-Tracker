@@ -3,6 +3,15 @@ import { toast } from 'sonner'
 import { api } from './client'
 import type { PlayerStats, RotationBreakdown, HeatMapPoint, CreateSeasonPayload } from '@vst/shared'
 
+/** All global seasons (for match modals — no team context needed). */
+export function useAllSeasons() {
+  return useQuery({
+    queryKey: ['seasons'],
+    queryFn: () => api.get<unknown[]>('/seasons'),
+  })
+}
+
+/** Seasons this team has played in (derived via matches). */
 export function useSeasons(teamId: string) {
   return useQuery({
     queryKey: ['seasons', teamId],
@@ -11,20 +20,29 @@ export function useSeasons(teamId: string) {
   })
 }
 
-export function useCreateSeason(teamId: string) {
+export function useCreateSeason() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (payload: CreateSeasonPayload) => api.post<unknown>(`/teams/${teamId}/seasons`, payload),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['seasons', teamId] }),
+    mutationFn: (payload: CreateSeasonPayload) => api.post<unknown>('/seasons', payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['seasons'] }),
     onError: (e: Error) => toast.error(e.message),
   })
 }
 
-export function useUpdateSeason(seasonId: string, teamId: string) {
+export function useUpdateSeason(seasonId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (payload: Partial<CreateSeasonPayload>) => api.put<unknown>(`/seasons/${seasonId}`, payload),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['seasons', teamId] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['seasons'] }),
+    onError: (e: Error) => toast.error(e.message),
+  })
+}
+
+export function useDeleteSeason(seasonId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.delete<unknown>(`/seasons/${seasonId}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['seasons'] }),
     onError: (e: Error) => toast.error(e.message),
   })
 }
@@ -75,6 +93,18 @@ export function usePlayerStats(
   })
 }
 
+export function useTeamPlayerStats(teamId: string, scope?: string, scopeId?: string) {
+  const params = new URLSearchParams({ teamId })
+  if (scope) params.set('scope', scope)
+  if (scopeId) params.set('scopeId', scopeId)
+  return useQuery({
+    queryKey: ['stats', 'team-players', teamId, scope, scopeId],
+    queryFn: () => api.get<PlayerStats[]>(`/stats/players?${params}`),
+    enabled: !!teamId,
+    staleTime: 60_000,
+  })
+}
+
 export function useRotationStats(setId: string, teamId: string) {
   return useQuery({
     queryKey: ['stats', 'rotations', setId, teamId],
@@ -94,6 +124,7 @@ export function useAttackHeatMap(filters: {
   return useQuery({
     queryKey: ['stats', 'heatmap', 'attacks', filters],
     queryFn: () => api.get<HeatMapPoint[]>(`/stats/heatmap/attacks?${params}`),
+    enabled: !!(filters.teamId || filters.playerId),
     staleTime: 60_000,
   })
 }
@@ -109,6 +140,7 @@ export function useDigHeatMap(filters: {
   return useQuery({
     queryKey: ['stats', 'heatmap', 'digs', filters],
     queryFn: () => api.get<HeatMapPoint[]>(`/stats/heatmap/digs?${params}`),
+    enabled: !!(filters.teamId || filters.playerId),
     staleTime: 60_000,
   })
 }
@@ -124,6 +156,7 @@ export function useReceptionHeatMap(filters: {
   return useQuery({
     queryKey: ['stats', 'heatmap', 'receptions', filters],
     queryFn: () => api.get<HeatMapPoint[]>(`/stats/heatmap/receptions?${params}`),
+    enabled: !!(filters.teamId || filters.playerId),
     staleTime: 60_000,
   })
 }

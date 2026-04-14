@@ -16,8 +16,12 @@ interface RallyState {
   step: EntryStep
   // Draft actions accumulated before submission
   actions: RallyActionDraft[]
-  // Stack for navigating back
+  // Stack of steps for navigating back
   stepHistory: EntryStep[]
+  // Parallel to stepHistory: actions.length at the time of each push.
+  // goBack restores actions to this count, so switchStep (which adds no action)
+  // doesn't accidentally pop a committed action.
+  actionsAtStep: number[]
   // The rally ID received after POST /sets/:setId/rallies
   rallyId: string | null
   // Point outcome
@@ -32,31 +36,51 @@ interface RallyState {
   addAction: (action: RallyActionDraft) => void
   setPointOutcome: (winningTeamId: string, pointType: PointType) => void
   resetRally: () => void
+  restoreActions: (actions: RallyActionDraft[], rallyId: string) => void
 }
 
 export const useRallyStore = create<RallyState>((set) => ({
   step: 'idle',
   actions: [],
   stepHistory: [],
+  actionsAtStep: [],
   rallyId: null,
   winningTeamId: null,
   pointType: null,
 
   startRally: (rallyId) =>
-    set({ rallyId, step: 'serve', actions: [], stepHistory: [], winningTeamId: null, pointType: null }),
+    set({ rallyId, step: 'serve', actions: [], stepHistory: [], actionsAtStep: [], winningTeamId: null, pointType: null }),
 
+  // goToStep is called after an action is added — records current action count
+  // so goBack can restore to exactly that count.
   goToStep: (step) =>
-    set((s) => ({ step, stepHistory: [...s.stepHistory, s.step] })),
+    set((s) => ({
+      step,
+      stepHistory: [...s.stepHistory, s.step],
+      actionsAtStep: [...s.actionsAtStep, s.actions.length],
+    })),
 
-  switchStep: (step) => set({ step }),
+  // switchStep is a tab-switch with no associated action — also records current
+  // action count so goBack doesn't pop a committed action when unwinding.
+  switchStep: (step) =>
+    set((s) => ({
+      step,
+      stepHistory: [...s.stepHistory, s.step],
+      actionsAtStep: [...s.actionsAtStep, s.actions.length],
+    })),
 
   goBack: () =>
     set((s) => {
       const history = [...s.stepHistory]
+      const counts = [...s.actionsAtStep]
       const prev = history.pop() ?? 'idle'
-      // Also remove the last action if going back
-      const actions = s.actions.slice(0, -1)
-      return { step: prev, stepHistory: history, actions }
+      const actionCount = counts.pop() ?? 0
+      return {
+        step: prev,
+        stepHistory: history,
+        actionsAtStep: counts,
+        actions: s.actions.slice(0, actionCount),
+      }
     }),
 
   addAction: (action) =>
@@ -66,43 +90,67 @@ export const useRallyStore = create<RallyState>((set) => ({
     set({ winningTeamId, pointType, step: 'idle' }),
 
   resetRally: () =>
-    set({ step: 'idle', actions: [], stepHistory: [], rallyId: null, winningTeamId: null, pointType: null }),
+    set({ step: 'idle', actions: [], stepHistory: [], actionsAtStep: [], rallyId: null, winningTeamId: null, pointType: null }),
+
+  // Restore a previously saved draft (e.g. after page reload following a failed submit).
+  // Puts the store into point_outcome step so the user can retry immediately.
+  restoreActions: (actions, rallyId) =>
+    set({ actions, rallyId, step: 'point_outcome', stepHistory: [], actionsAtStep: [], winningTeamId: null, pointType: null }),
 }))
 
 /**
  * Infer point winner + type from the rally actions already committed.
  * Returns null when outcome is ambiguous (user must pick manually).
+ *
+ * servingTeamId is used as fallback for the "other team" when awayTeamId is
+ * null (untracked opponent) — e.g. an ace means the server wins even if the
+ * receiving team has no tracked ID.
  */
 export function inferPointOutcome(
   actions: RallyActionDraft[],
   homeTeamId: string | null,
-  awayTeamId: string | null
+  awayTeamId: string | null,
+  servingTeamId: string | null = null,
 ): { winningTeamId: string; pointType: PointType } | null {
   const last = actions[actions.length - 1]
   if (!last) return null
 
-  const other = (tid: string | null): string | null =>
-    tid === homeTeamId ? awayTeamId : homeTeamId
+  const other = (tid: string | null): string | null => {
+    if (tid === homeTeamId) return awayTeamId
+    if (tid === awayTeamId) return homeTeamId
+    // Fallback: if one side is untracked (null id), the "other" team is whoever
+    // isn't tid. Use servingTeamId to resolve aces.
+    return null
+  }
+
+  // Resolve "other" team with serving context when awayTeamId is null.
+  const otherOrServing = (tid: string | null): string | null => {
+    const o = other(tid)
+    if (o !== null) return o
+    // Untracked opponent scenario: the non-tid tracked team wins.
+    if (tid === servingTeamId) return homeTeamId === tid ? awayTeamId : homeTeamId
+    return servingTeamId
+  }
 
   switch (last.actionType) {
     case 'serve':
       if (last.serveQuality === 4 && last.teamId) return { winningTeamId: last.teamId, pointType: 'ace' }
       if (last.serveQuality === 0) {
-        const w = other(last.teamId)
+        const w = otherOrServing(last.teamId)
         if (w) return { winningTeamId: w, pointType: 'error' }
       }
       break
     case 'reception':
       if (last.passQuality === 0) {
-        // Aced — the serving team (other side) wins
-        const w = other(last.teamId)
+        // Aced — the serving team wins
+        const w = servingTeamId ?? otherOrServing(last.teamId)
         if (w) return { winningTeamId: w, pointType: 'ace' }
       }
       break
     case 'attack':
       if (last.attackResult === 'kill' && last.teamId) return { winningTeamId: last.teamId, pointType: 'kill' }
       if (last.attackResult === 'error') {
-        const w = other(last.teamId)
+        const w = otherOrServing(last.teamId)
         if (w) return { winningTeamId: w, pointType: 'error' }
       }
       break
@@ -110,7 +158,7 @@ export function inferPointOutcome(
       if ((last.blockResult === 'solo_block' || last.blockResult === 'assisted_block') && last.teamId)
         return { winningTeamId: last.teamId, pointType: 'block' }
       if (last.blockResult === 'block_error') {
-        const w = other(last.teamId)
+        const w = otherOrServing(last.teamId)
         if (w) return { winningTeamId: w, pointType: 'error' }
       }
       break

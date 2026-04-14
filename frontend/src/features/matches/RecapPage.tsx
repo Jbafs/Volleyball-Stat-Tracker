@@ -54,9 +54,11 @@ export function RecapPage() {
 
   const isAdmin = useAuthStore((s) => s.user?.role === 'admin')
   const [rallyLogOpen, setRallyLogOpen] = useState(false)
-  const rallyLogSetId = statsSetId || completedSetIds[0] || ''
-  const { data: rallyLogRallies = [] } = useSetRallies(rallyLogSetId)
-  const deleteRally = useDeleteRally(rallyLogSetId)
+  // Rally log has its own set selector, independent of the player stats selector
+  const [rallyLogSetId, setRallyLogSetId] = useState('')
+  const effectiveRallyLogSetId = rallyLogSetId || completedSetIds[0] || ''
+  const { data: rallyLogRallies = [] } = useSetRallies(effectiveRallyLogSetId)
+  const deleteRally = useDeleteRally(effectiveRallyLogSetId)
 
   const completedSets = setList.filter((s) => s.status === 'complete')
   const homeSetsWon = completedSets.filter((s) => (s.home_score as number) > (s.away_score as number)).length
@@ -179,6 +181,39 @@ export function RecapPage() {
           </div>
         </div>
       )}
+
+      {/* Set summary card — shown when a specific set is selected */}
+      {statsSetId && (() => {
+        const summarySet = completedSets.find((s) => s.id === statsSetId)
+        if (!summarySet) return null
+        const homeScore = summarySet.home_score as number
+        const awayScore = summarySet.away_score as number
+        const totalRallies = homeScore + awayScore
+        const homeWon = homeScore > awayScore
+        // Sideout %: sum rotation_stats for the rotation breakdown team.
+        // rotationData is already fetched for this set (activeRotationSetId).
+        const rotationSo = activeRotationSetId === statsSetId && rotationData.length > 0
+          ? rotationData.reduce((acc, r) => ({
+              won: acc.won + ((r as unknown as Record<string, number>).sideout_won ?? 0),
+              total: acc.total + ((r as unknown as Record<string, number>).sideout_total ?? 0),
+            }), { won: 0, total: 0 })
+          : null
+        return (
+          <div className="card p-4 flex flex-wrap gap-4 items-center text-sm">
+            <span className="font-semibold text-white">Set {summarySet.set_number as number}</span>
+            <span className="text-gray-300 tabular-nums">
+              {homeScore}–{awayScore}
+              <span className="ml-1 text-xs text-gray-500">({homeWon ? homeTeamName : awayTeamName} won)</span>
+            </span>
+            <span className="text-gray-500">{totalRallies} rallies</span>
+            {rotationSo && rotationSo.total > 0 && (
+              <span className="text-gray-500">
+                {effectiveRotationSide === 'home' ? homeTeamName : awayTeamName} SO: {((rotationSo.won / rotationSo.total) * 100).toFixed(0)}%
+              </span>
+            )}
+          </div>
+        )
+      })()}
 
       {/* Player stats table */}
       {(matchPlayerStats.length > 0 || statsSorted.length > 0) && (
@@ -352,14 +387,20 @@ export function RecapPage() {
           </button>
           {rallyLogOpen && (
             <div className="mt-3">
-              {rallyLogSetId && (() => {
-                const logSet = setList.find((s) => s.id === rallyLogSetId)
-                return logSet ? (
-                  <p className="text-xs text-gray-500 mb-2">
-                    Set {logSet.set_number as number} — use the player stats selector above to switch sets
-                  </p>
-                ) : null
-              })()}
+              {/* Independent set selector for rally log */}
+              {completedSets.length > 1 && (
+                <div className="flex gap-1 bg-gray-900 rounded-xl p-1 w-fit mb-3">
+                  {completedSets.map((s) => (
+                    <button
+                      key={s.id as string}
+                      onClick={() => setRallyLogSetId(s.id as string)}
+                      className={`px-3 py-1.5 text-sm rounded-lg transition-colors whitespace-nowrap ${effectiveRallyLogSetId === s.id ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                    >
+                      Set {s.set_number as number}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="card divide-y divide-gray-800">
                 {(rallyLogRallies as unknown as { id: string; rally_number: number; home_score_before: number; away_score_before: number; winning_team_id: string | null; point_type: string | null }[]).map((r) => {
                   const winnerId = r.winning_team_id

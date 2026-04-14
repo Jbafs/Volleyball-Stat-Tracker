@@ -10,10 +10,12 @@ export interface User {
   role: 'admin'
 }
 
-/** Generate a ULID-like sortable ID using the current timestamp + random suffix */
+/** Generate a ULID-like sortable ID using the current timestamp + CSPRNG suffix */
 export function newId(): string {
   const ts = Date.now().toString(36).padStart(9, '0')
-  const rand = Math.random().toString(36).slice(2, 11).padStart(9, '0')
+  const bytes = new Uint8Array(6)
+  crypto.getRandomValues(bytes)
+  const rand = Array.from(bytes, (b) => b.toString(36).padStart(2, '0')).join('').slice(0, 9)
   return `${ts}${rand}`
 }
 

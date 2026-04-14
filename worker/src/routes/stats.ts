@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import type { Env } from '../db/client'
-import { getPlayerStats, getRotationBreakdown, getAttackHeatMap, getDigHeatMap, getReceptionHeatMap, getTeamSideout, getMatchPlayerStats, getSetPlayerStats } from '../services/statsAggregator'
+import { getPlayerStats, getTeamPlayerStats, getRotationBreakdown, getAttackHeatMap, getDigHeatMap, getReceptionHeatMap, getTeamSideout, getMatchPlayerStats, getSetPlayerStats } from '../services/statsAggregator'
 
 const stats = new Hono<{ Bindings: Env }>()
 
@@ -21,6 +21,18 @@ stats.get('/player/:playerId', async (c) => {
 
   const result = await getPlayerStats(c.env.DB, playerId, resolvedScope, scopeId)
   if (!result) return c.json({ error: 'No stats found' }, 404)
+  return c.json(result)
+})
+
+stats.get('/players', async (c) => {
+  const { teamId, scope, scopeId } = c.req.query()
+  if (!teamId) return c.json({ error: 'teamId required' }, 400)
+  const validScopes = ['career', 'season', 'match'] as const
+  type TeamScope = (typeof validScopes)[number]
+  const resolvedScope: TeamScope = validScopes.includes(scope as TeamScope)
+    ? (scope as TeamScope)
+    : 'career'
+  const result = await getTeamPlayerStats(c.env.DB, teamId, resolvedScope, scopeId)
   return c.json(result)
 })
 

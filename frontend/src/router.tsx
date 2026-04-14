@@ -8,10 +8,13 @@ import { EntryPage } from './features/entry/EntryPage'
 import { PlayerDetailPage } from './features/players/PlayerDetailPage'
 import { StatsPage } from './features/stats/StatsPage'
 import { SeasonPage } from './features/seasons/SeasonPage'
+import { SeasonsListPage } from './features/seasons/SeasonsListPage'
 import { DashboardPage } from './features/dashboard/DashboardPage'
 import { RecapPage } from './features/matches/RecapPage'
 import { LoginPage } from './features/auth/LoginPage'
 import { ProposalsPage } from './features/proposals/ProposalsPage'
+import { UsersPage } from './features/admin/UsersPage'
+import { AdminGuard } from './components/AdminGuard'
 
 export const router = createBrowserRouter([
   {
@@ -30,9 +33,12 @@ export const router = createBrowserRouter([
       { path: 'matches/:matchId/recap', element: <RecapPage /> },
       { path: 'matches/:matchId/enter/:setId', element: <EntryPage /> },
       { path: 'players/:playerId', element: <PlayerDetailPage /> },
+      { path: 'seasons', element: <SeasonsListPage /> },
+      { path: 'seasons/:seasonId', element: <SeasonPage /> },
       { path: 'teams/:teamId/seasons/:seasonId', element: <SeasonPage /> },
       { path: 'stats', element: <StatsPage /> },
       { path: 'admin/proposals', element: <ProposalsPage /> },
+      { path: 'admin/users', element: <AdminGuard redirect><UsersPage /></AdminGuard> },
     ],
   },
 ])

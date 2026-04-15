@@ -8,6 +8,7 @@ interface HeatmapsTabProps {
   attackPoints: HeatMapPoint[]
   digPoints: HeatMapPoint[]
   receptionPoints: HeatMapPoint[]
+  servePoints: HeatMapPoint[]
   serveQualityBuckets: ServeQualityBucket[]
   sideoutData?: { sideoutWon: number; sideoutTotal: number; sideoutPct: number }
   teamId: string
@@ -19,6 +20,7 @@ interface HeatmapsTabProps {
 
 type AttackFilter = 'all' | 'kill' | 'error' | 'in_play' | 'blocked'
 type DigFilter = 'all' | 'good_dig' | 'poor_dig' | 'no_dig'
+type ServeFilter = 'all' | 'kill' | 'in_play' | 'error'
 type ZoneMetric = 'count' | 'efficiency'
 
 const SERVE_QUALITY_LABELS: Record<number, string> = {
@@ -40,18 +42,21 @@ export function HeatmapsTab({
   attackPoints,
   digPoints,
   receptionPoints,
+  servePoints,
   serveQualityBuckets,
   sideoutData,
   teamId,
   playerNames,
   matchPlayers,
 }: HeatmapsTabProps) {
-  const [heatmapTab, setHeatmapTab] = useState<'attack' | 'dig' | 'receive'>('attack')
+  const [heatmapTab, setHeatmapTab] = useState<'attack' | 'dig' | 'receive' | 'serve'>('attack')
   const [attackFilter, setAttackFilter] = useState<AttackFilter>('all')
   const [digFilter, setDigFilter] = useState<DigFilter>('all')
+  const [serveFilter, setServeFilter] = useState<ServeFilter>('all')
   const [hoveredAttack, setHoveredAttack] = useState<HeatMapPoint | null>(null)
   const [hoveredDig, setHoveredDig] = useState<HeatMapPoint | null>(null)
   const [hoveredReceive, setHoveredReceive] = useState<HeatMapPoint | null>(null)
+  const [hoveredServe, setHoveredServe] = useState<HeatMapPoint | null>(null)
   const [zoneMetric, setZoneMetric] = useState<ZoneMetric>('count')
 
   const filteredAttackPoints = attackFilter === 'all'
@@ -106,7 +111,11 @@ export function HeatmapsTab({
   }))
   const hasSevereData = serveBarData.some((d) => d.value > 0)
 
-  const noData = attackPoints.length === 0 && digPoints.length === 0 && receptionPoints.length === 0
+  const filteredServePoints = serveFilter === 'all'
+    ? servePoints
+    : servePoints.filter((p) => p.result === serveFilter)
+
+  const noData = attackPoints.length === 0 && digPoints.length === 0 && receptionPoints.length === 0 && servePoints.length === 0
 
   function pointLabel(pt: HeatMapPoint | null): string | null {
     if (!pt) return null
@@ -174,7 +183,7 @@ export function HeatmapsTab({
 
       {/* Mobile heatmap tab bar */}
       <div className="flex sm:hidden bg-gray-900 rounded-xl p-1 w-fit gap-1">
-        {(['attack', 'dig', 'receive'] as const).map((tab) => (
+        {(['attack', 'dig', 'receive', 'serve'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setHeatmapTab(tab)}
@@ -182,7 +191,7 @@ export function HeatmapsTab({
               heatmapTab === tab ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'
             }`}
           >
-            {tab === 'attack' ? 'Attack' : tab === 'dig' ? 'Dig' : 'Receive'}
+            {tab === 'attack' ? 'Attack' : tab === 'dig' ? 'Dig' : tab === 'receive' ? 'Receive' : 'Serve'}
           </button>
         ))}
       </div>
@@ -268,6 +277,44 @@ export function HeatmapsTab({
             </div>
           ) : (
             <p className="text-xs text-gray-500 mt-2">Green = perfect, yellow = ok, red = aced</p>
+          )}
+        </div>
+
+        {/* Serve heatmap */}
+        <div className={`card p-4 ${heatmapTab !== 'serve' ? 'hidden sm:block' : ''}`}>
+          <h2 className="text-base font-semibold text-white mb-3">Serve Destinations</h2>
+          <div className="flex flex-wrap gap-1 mb-3">
+            {([
+              { key: 'all', label: 'All' },
+              { key: 'kill', label: 'Effective' },
+              { key: 'in_play', label: 'Neutral' },
+              { key: 'error', label: 'Ineffective' },
+            ] as { key: ServeFilter; label: string }[]).map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setServeFilter(key)}
+                className={`px-2 py-0.5 text-xs rounded-full border transition-colors ${
+                  serveFilter === key
+                    ? 'bg-blue-600 border-blue-500 text-white'
+                    : 'border-gray-700 text-gray-400 hover:text-white'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <CourtSVG
+            mode="heatmap"
+            heatMapPoints={filteredServePoints}
+            onPointHover={setHoveredServe}
+            playerNames={playerNames}
+          />
+          {hoveredServe ? (
+            <div className="mt-2 text-xs text-gray-300 bg-gray-800 rounded-lg px-3 py-1.5">
+              {pointLabel(hoveredServe)}
+            </div>
+          ) : (
+            <p className="text-xs text-gray-500 mt-2">Green = ace / poor pass · Yellow = pressured · Red = perfect pass</p>
           )}
         </div>
       </div>

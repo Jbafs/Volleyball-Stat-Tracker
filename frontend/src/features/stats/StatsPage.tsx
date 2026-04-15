@@ -7,6 +7,7 @@ import {
   useAttackHeatMap,
   useDigHeatMap,
   useReceptionHeatMap,
+  useServeHeatMap,
   useMatchPlayerStats,
   useTeamPlayerStats,
   useSeasonLeaderboard,
@@ -49,6 +50,7 @@ export function StatsPage() {
   const { data: attackPoints = [] } = useAttackHeatMap(heatMapFilters)
   const { data: digPoints = [] } = useDigHeatMap(heatMapFilters)
   const { data: receptionPoints = [] } = useReceptionHeatMap(heatMapFilters)
+  const { data: servePoints = [] } = useServeHeatMap(heatMapFilters)
   const { data: sideout } = useTeamSideout({
     teamId: teamId || undefined,
     seasonId: seasonId || undefined,
@@ -183,6 +185,7 @@ export function StatsPage() {
           attackPoints={attackPoints}
           digPoints={digPoints}
           receptionPoints={receptionPoints}
+          servePoints={servePoints}
           serveQualityBuckets={serveQualityBuckets}
           sideoutData={sideout}
           teamId={teamId}

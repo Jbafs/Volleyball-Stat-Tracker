@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import type { Env } from '../db/client'
-import { getPlayerStats, getTeamPlayerStats, getRotationBreakdown, getAttackHeatMap, getDigHeatMap, getReceptionHeatMap, getTeamSideout, getMatchPlayerStats, getSetPlayerStats, getSeasonLeaderboard, getSeasonTeamStats, getServeQualityDist } from '../services/statsAggregator'
+import { getPlayerStats, getTeamPlayerStats, getRotationBreakdown, getAttackHeatMap, getDigHeatMap, getReceptionHeatMap, getServeHeatMap, getTeamSideout, getMatchPlayerStats, getSetPlayerStats, getSeasonLeaderboard, getSeasonTeamStats, getServeQualityDist } from '../services/statsAggregator'
 
 const stats = new Hono<{ Bindings: Env }>()
 
@@ -83,6 +83,12 @@ stats.get('/heatmap/digs', async (c) => {
 stats.get('/heatmap/receptions', async (c) => {
   const { teamId, playerId, seasonId, matchId } = c.req.query()
   const result = await getReceptionHeatMap(c.env.DB, { teamId, playerId, seasonId, matchId })
+  return c.json(result)
+})
+
+stats.get('/heatmap/serves', async (c) => {
+  const { teamId, playerId, seasonId, matchId } = c.req.query()
+  const result = await getServeHeatMap(c.env.DB, { teamId, playerId, seasonId, matchId })
   return c.json(result)
 })
 

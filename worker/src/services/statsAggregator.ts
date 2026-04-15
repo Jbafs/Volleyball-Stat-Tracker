@@ -449,6 +449,68 @@ export async function getReceptionHeatMap(
   }))
 }
 
+export async function getServeHeatMap(
+  db: D1Database,
+  filters: { teamId?: string; playerId?: string; seasonId?: string; matchId?: string }
+): Promise<HeatMapPoint[]> {
+  const baseJoins = `
+    JOIN rallies r ON r.id = ra.rally_id
+    JOIN sets s ON s.id = r.set_id
+    JOIN matches m ON m.id = s.match_id`
+
+  // ── Query 1: received serves (flip reception dig position) ────────────────
+  const cond1: string[] = ["ra.action_type = 'reception'", 'ra.dig_x IS NOT NULL']
+  const p1: (string | null)[] = []
+  if (filters.teamId)   { cond1.push('r.serving_team_id = ?'); p1.push(filters.teamId) }
+  if (filters.playerId) {
+    cond1.push("EXISTS (SELECT 1 FROM rally_actions sa WHERE sa.rally_id = ra.rally_id AND sa.action_type = 'serve' AND sa.player_id = ?)")
+    p1.push(filters.playerId)
+  }
+  if (filters.seasonId) { cond1.push('m.season_id = ?'); p1.push(filters.seasonId) }
+  if (filters.matchId)  { cond1.push('s.match_id = ?'); p1.push(filters.matchId) }
+
+  const received = await query<{ dig_x: number; dig_y: number; pass_quality: number | null; server_id: string | null }>(
+    db,
+    `SELECT ra.dig_x, ra.dig_y, ra.pass_quality,
+            (SELECT sa.player_id FROM rally_actions sa
+             WHERE sa.rally_id = ra.rally_id AND sa.action_type = 'serve' LIMIT 1) AS server_id
+     FROM rally_actions ra ${baseJoins}
+     WHERE ${cond1.join(' AND ')}`,
+    p1
+  )
+
+  // ── Query 2: aces with location (serve action with dest_x recorded) ───────
+  const cond2: string[] = ["ra.action_type = 'serve'", 'ra.serve_quality = 4', 'ra.dest_x IS NOT NULL']
+  const p2: (string | null)[] = []
+  if (filters.teamId)   { cond2.push('ra.team_id = ?'); p2.push(filters.teamId) }
+  if (filters.playerId) { cond2.push('ra.player_id = ?'); p2.push(filters.playerId) }
+  if (filters.seasonId) { cond2.push('m.season_id = ?'); p2.push(filters.seasonId) }
+  if (filters.matchId)  { cond2.push('s.match_id = ?'); p2.push(filters.matchId) }
+
+  const aces = await query<{ dest_x: number; dest_y: number; player_id: string | null }>(
+    db,
+    `SELECT ra.dest_x, ra.dest_y, ra.player_id
+     FROM rally_actions ra ${baseJoins}
+     WHERE ${cond2.join(' AND ')}`,
+    p2
+  )
+
+  const fromReceived: HeatMapPoint[] = received.map((r) => {
+    const q = r.pass_quality ?? 2
+    const result: HeatMapPoint['result'] = q <= 1 ? 'kill' : q === 2 ? 'in_play' : 'error'
+    return { x: 1 - r.dig_x, y: 1 - r.dig_y, result, playerId: r.server_id }
+  })
+
+  const fromAces: HeatMapPoint[] = aces.map((r) => ({
+    x: r.dest_x,
+    y: r.dest_y,
+    result: 'kill' as HeatMapPoint['result'],
+    playerId: r.player_id,
+  }))
+
+  return [...fromReceived, ...fromAces]
+}
+
 export async function getSeasonLeaderboard(
   db: D1Database,
   seasonId: string

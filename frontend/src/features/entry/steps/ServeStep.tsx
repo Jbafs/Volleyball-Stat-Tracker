@@ -4,6 +4,7 @@ import { useRallyStore, nextStepAfterAction } from '../../../store/rallyStore'
 import { useTeamPlayers } from '../../../api/players'
 import { SERVE_QUALITY_LABELS } from '@vst/shared'
 import type { ServeQuality, LineupSlot } from '@vst/shared'
+import { CourtSVG } from '../../../components/court/CourtSVG'
 
 const SERVE_OPTIONS = ([0, 1, 2, 3, 4] as ServeQuality[]).map((v) => ({
   value: v,
@@ -23,11 +24,18 @@ interface Props {
 export function ServeStep({ homeTeamId, awayTeamId, servingTeamId, homeTeamName, awayTeamName, currentServer }: Props) {
   const [playerId, setPlayerId] = useState<string | null>(currentServer?.player_id ?? null)
   const [quality, setQuality] = useState<ServeQuality | null>(null)
+  const [destX, setDestX] = useState<number | null>(null)
+  const [destY, setDestY] = useState<number | null>(null)
 
   // When rotation changes between rallies, update the pre-selected server
   useEffect(() => {
     setPlayerId(currentServer?.player_id ?? null)
   }, [currentServer?.player_id])
+
+  // Reset ace location when quality changes away from 4
+  useEffect(() => {
+    if (quality !== 4) { setDestX(null); setDestY(null) }
+  }, [quality])
 
   const { data: homePlayers = [] } = useTeamPlayers(homeTeamId ?? '')
   const { data: awayPlayers = [] } = useTeamPlayers(awayTeamId ?? '')
@@ -44,13 +52,15 @@ export function ServeStep({ homeTeamId, awayTeamId, servingTeamId, homeTeamName,
       playerId,
       teamId: servingTeamId,
       serveQuality: quality,
+      ...(quality === 4 && destX !== null && destY !== null ? { destX, destY } : {}),
     }
     rallyStore.addAction(action)
     rallyStore.goToStep(nextStepAfterAction(action, rallyStore.actions))
   }
 
   const nextLabel =
-    quality === 4 ? 'Ace → Point Outcome'
+    quality === 4
+      ? destX !== null ? 'Ace (location marked) → Point Outcome' : 'Ace → Point Outcome'
     : quality === 0 ? 'Error → Point Outcome'
     : 'Continue to Pass →'
 
@@ -77,6 +87,21 @@ export function ServeStep({ homeTeamId, awayTeamId, servingTeamId, homeTeamName,
         onSelect={setQuality}
         label="Serve quality / outcome"
       />
+
+      {quality === 4 && (
+        <div>
+          <p className="label mb-2">
+            {destX === null
+              ? "Tap where the ace landed (optional)"
+              : "Ace location marked — tap to change"}
+          </p>
+          <CourtSVG
+            mode="pick_dest"
+            onCoordPick={(x, y) => { setDestX(x); setDestY(y) }}
+            markedCoord={destX !== null && destY !== null ? { normX: destX, normY: destY } : undefined}
+          />
+        </div>
+      )}
 
       <button
         onClick={handleCommit}

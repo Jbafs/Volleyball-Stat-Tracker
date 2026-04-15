@@ -189,3 +189,19 @@ export function useReceptionHeatMap(filters: {
     staleTime: 60_000,
   })
 }
+
+export function useServeHeatMap(filters: {
+  teamId?: string
+  playerId?: string
+  seasonId?: string
+  matchId?: string
+}) {
+  const params = new URLSearchParams()
+  Object.entries(filters).forEach(([k, v]) => v && params.set(k, v))
+  return useQuery({
+    queryKey: ['stats', 'heatmap', 'serves', filters],
+    queryFn: () => api.get<HeatMapPoint[]>(`/stats/heatmap/serves?${params}`),
+    enabled: !!(filters.teamId || filters.playerId || filters.seasonId || filters.matchId),
+    staleTime: 60_000,
+  })
+}
